@@ -49,6 +49,18 @@
       "expo-localization",
       "expo-secure-store",
       [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera for barcode scanning"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos"
+        }
+      ],
+      [
         "expo-notifications",
         {
           "icon": "./assets/images/logo.png",
