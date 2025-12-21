@@ -1,11 +1,17 @@
 # dependencies
-node_modules/
+node_modules
 
 # expo / react native
-.expo/
-.expo-shared/
-web-build/
-dist/
+.expo
+.expo-shared
+web-build
+dist
+
+# native builds / caches
+android/.gradle
+android/app/build
+android/build
+ios/build
 
 # logs
 *.log
@@ -13,3 +19,6 @@ dist/
 # env
 .env
 .env.*
+
+# supabase edge functions are not required for Android build
+supabase
