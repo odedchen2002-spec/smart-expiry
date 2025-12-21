@@ -4,6 +4,7 @@
  */
 
 import { useLanguage } from '@/context/LanguageContext';
+import { useCategories } from '@/context/CategoriesContext';
 import { isRTL } from '@/i18n';
 import { THEME_COLORS } from '@/lib/constants/colors';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
@@ -12,15 +13,14 @@ import {
   deleteCategory,
   getCategories,
   getDefaultCategory,
-  getProductsByCategory,
   renameCategory,
 } from '@/lib/supabase/queries/categories';
 import { getRtlContainerStyles, getRtlTextStyles } from '@/lib/utils/rtlStyles';
-import { loadCachedCategories, saveCachedCategories, Category } from '@/lib/cache/categoriesCache';
+import { Category } from '@/lib/cache/categoriesCache';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { Alert, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { Alert, Platform, ScrollView, StyleSheet, View, InteractionManager } from 'react-native';
 import {
   ActivityIndicator,
   Appbar,
@@ -41,83 +41,22 @@ export default function CategoriesScreen() {
   const rtlContainer = getRtlContainerStyles(isRTL);
   const rtlText = getRtlTextStyles(isRTL);
   const { activeOwnerId, isViewer } = useActiveOwner();
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [isInitialized, setIsInitialized] = useState(false);
-  const [hasLoadedFromCache, setHasLoadedFromCache] = useState(false);
-  const [isLoadingFromNetwork, setIsLoadingFromNetwork] = useState(false);
+  const {
+    categories,
+    productCounts,
+    loading,
+    refresh,
+    addCategoryOptimistic,
+    updateCategoryOptimistic,
+    deleteCategoryOptimistic,
+  } = useCategories();
   const [dialogVisible, setDialogVisible] = useState(false);
   const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [categoryName, setCategoryName] = useState('');
   const [categoryToDelete, setCategoryToDelete] = useState<string | null>(null);
-  const [productCounts, setProductCounts] = useState<Record<string, number>>({});
 
   const defaultCategory = getDefaultCategory();
-
-  useEffect(() => {
-    const initialize = async () => {
-      if (!activeOwnerId) return;
-
-      // If we already have categories in memory, use them immediately
-      if (categories.length > 0) {
-        setIsInitialized(true);
-        await refreshCategoriesFromNetwork();
-        return;
-      }
-
-      // Only hit AsyncStorage once per session per owner when we have no categories yet
-      if (!hasLoadedFromCache) {
-        try {
-          const cached = await loadCachedCategories(activeOwnerId);
-          if (cached && cached.length > 0) {
-            setCategories(cached);
-          }
-        } catch (error) {
-          console.log('[Categories] Failed to load cached categories', error);
-        } finally {
-          setHasLoadedFromCache(true);
-          setIsInitialized(true);
-        }
-      } else {
-        setIsInitialized(true);
-      }
-
-      // Always refresh from Supabase in the background
-      await refreshCategoriesFromNetwork();
-    };
-
-    initialize();
-    // We intentionally exclude `categories.length` so this only runs on owner/cache changes
-  }, [activeOwnerId, hasLoadedFromCache]);
-
-  const refreshCategoriesFromNetwork = async () => {
-    if (!activeOwnerId) return;
-
-    try {
-      setIsLoadingFromNetwork(true);
-      const cats = await getCategories(activeOwnerId);
-      setCategories(cats);
-      await saveCachedCategories(activeOwnerId, cats);
-
-      // Get product counts for each category (in parallel)
-      const counts: Record<string, number> = {};
-      await Promise.all(
-        cats.map(async (cat) => {
-          const products = await getProductsByCategory(activeOwnerId, cat);
-          counts[cat] = products.length;
-        })
-      );
-      setProductCounts(counts);
-    } catch (error) {
-      console.error('Error loading categories:', error);
-      Alert.alert(
-        t('common.error') || 'שגיאה',
-        t('categories.loadError') || 'לא ניתן לטעון קטגוריות'
-      );
-    } finally {
-      setIsLoadingFromNetwork(false);
-    }
-  };
 
   const handleAddCategory = () => {
     setEditingCategory(null);
@@ -145,27 +84,21 @@ export default function CategoriesScreen() {
 
       if (editingCategory) {
         if (editingCategory !== trimmedName) {
-          // Optimistically update local state
-          setCategories((prev) => {
-            const updated = prev.map((c) => (c === editingCategory ? trimmedName : c));
-            return [...updated].sort((a, b) => a.localeCompare(b));
-          });
-          setProductCounts((prev) => {
-            const next = { ...prev };
-            next[trimmedName] = prev[editingCategory] || 0;
-            delete next[editingCategory];
-            return next;
-          });
-          await saveCachedCategories(activeOwnerId, 
-            [...categories.map((c) => (c === editingCategory ? trimmedName : c))].sort((a, b) => a.localeCompare(b))
-          );
+          // Optimistically update via context (immediate UI update)
+          updateCategoryOptimistic(editingCategory, trimmedName);
 
           // Persist to Supabase
           await renameCategory(activeOwnerId, editingCategory, trimmedName);
+          
+          // Refresh after interactions complete (non-blocking)
+          InteractionManager.runAfterInteractions(() => {
+            refresh(true).catch((err) => {
+              console.error('Error refreshing after category update:', err);
+            });
+          });
         }
       } else {
         // Create new category by creating a placeholder product with this category
-        // This makes the category appear in the list
         const categoryNameTrimmed = trimmedName;
         
         // Check if category already exists
@@ -179,7 +112,6 @@ export default function CategoriesScreen() {
         }
         
         // Create a placeholder product with this category
-        // Use a unique name to avoid conflicts
         const placeholderName = `__CATEGORY_PLACEHOLDER_${categoryNameTrimmed}__`;
         
         const { data: createdProduct, error: createError } = await supabase
@@ -195,33 +127,31 @@ export default function CategoriesScreen() {
         
         if (createError) {
           console.error('Error creating category placeholder:', createError);
-          console.error('Error details:', JSON.stringify(createError, null, 2));
           throw createError;
         }
         
-        // Optimistically add to local state with count 0
-        setCategories((prev) => {
-          if (prev.includes(categoryNameTrimmed)) return prev;
-          const next = [...prev, categoryNameTrimmed];
-          return next.sort((a, b) => a.localeCompare(b));
+        // Optimistically add via context (immediate UI update)
+        addCategoryOptimistic(categoryNameTrimmed);
+        
+        // Refresh after interactions complete (non-blocking)
+        InteractionManager.runAfterInteractions(() => {
+          refresh(true).catch((err) => {
+            console.error('Error refreshing after category add:', err);
+          });
         });
-        setProductCounts((prev) => ({
-          ...prev,
-          [categoryNameTrimmed]: 0,
-        }));
-        await saveCachedCategories(
-          activeOwnerId,
-          [...categories, categoryNameTrimmed].sort((a, b) => a.localeCompare(b))
-        );
       }
       setDialogVisible(false);
-      // Optionally refresh from network to ensure counts are up to date
-      await refreshCategoriesFromNetwork();
     } catch (error: any) {
       Alert.alert(
         t('common.error') || 'שגיאה',
         error?.message || t('categories.saveError') || 'לא ניתן לשמור קטגוריה'
       );
+      // Revert optimistic update on error - defer to avoid blocking
+      InteractionManager.runAfterInteractions(() => {
+        refresh(true).catch((err) => {
+          console.error('Error refreshing after category save error:', err);
+        });
+      });
     }
   };
 
@@ -236,26 +166,30 @@ export default function CategoriesScreen() {
     try {
       const categoryToRemove = categoryToDelete;
 
-      // Optimistically update local state
-      setCategories((prev) => prev.filter((c) => c !== categoryToRemove));
-      setProductCounts((prev) => {
-        const next = { ...prev };
-        delete next[categoryToRemove];
-        return next;
-      });
-      await saveCachedCategories(
-        activeOwnerId,
-        categories.filter((c) => c !== categoryToRemove)
-      );
+      // Optimistically update via context
+      deleteCategoryOptimistic(categoryToRemove);
 
       await deleteCategory(activeOwnerId, categoryToRemove);
       setDeleteDialogVisible(false);
       setCategoryToDelete(null);
+      
+      // Refresh after interactions complete (non-blocking)
+      InteractionManager.runAfterInteractions(() => {
+        refresh(true).catch((err) => {
+          console.error('Error refreshing after category delete:', err);
+        });
+      });
     } catch (error: any) {
       Alert.alert(
         t('common.error') || 'שגיאה',
         error?.message || t('categories.deleteError') || 'לא ניתן למחוק קטגוריה'
       );
+      // Revert optimistic update on error - defer to avoid blocking
+      InteractionManager.runAfterInteractions(() => {
+        refresh(true).catch((err) => {
+          console.error('Error refreshing after category delete error:', err);
+        });
+      });
     }
   };
 
@@ -266,10 +200,23 @@ export default function CategoriesScreen() {
     } as any);
   };
 
+  // Handle back navigation: navigate immediately, defer any heavy operations
+  const handleBack = useCallback(() => {
+    // Navigate immediately - no await, no blocking operations
+    router.back();
+    
+    // If we need to refresh the main screen, do it after navigation completes
+    // The main screen will use the optimistic updates from context, so no refresh needed here
+    // But if needed in the future, use InteractionManager.runAfterInteractions:
+    // InteractionManager.runAfterInteractions(() => {
+    //   // Any heavy operations here
+    // });
+  }, [router]);
+
   return (
     <View style={styles.container}>
       <Appbar.Header style={{ backgroundColor: THEME_COLORS.surface }}>
-        <Appbar.BackAction onPress={() => router.back()} iconColor={THEME_COLORS.text} />
+        <Appbar.BackAction onPress={handleBack} iconColor={THEME_COLORS.text} />
         <Appbar.Content title={t('categories.title') || 'ניהול קטגוריות'} />
       </Appbar.Header>
 
@@ -311,7 +258,7 @@ export default function CategoriesScreen() {
             <Text variant="titleLarge" style={[styles.sectionTitle, rtlText]}>
               {t('categories.customCategories') || 'קטגוריות מותאמות אישית'}
             </Text>
-            {isLoadingFromNetwork && (
+            {loading && categories.length > 0 && (
               <ActivityIndicator 
                 size="small" 
                 color={THEME_COLORS.primary} 
@@ -321,7 +268,7 @@ export default function CategoriesScreen() {
           </View>
 
           {categories.length === 0 ? (
-            isInitialized ? (
+            !loading ? (
               <Card style={styles.emptyCard} mode="outlined">
                 <Card.Content style={styles.emptyCardContent}>
                   <IconButton

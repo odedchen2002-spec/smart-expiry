@@ -4,7 +4,6 @@ import { IconButton, Text } from 'react-native-paper';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useLanguage } from '@/context/LanguageContext';
-import { useTime } from '@/context/TimeContext';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
 import { useItems } from '@/lib/hooks/useItems';
 import { SearchBar } from '@/components/search/SearchBar';
@@ -21,7 +20,6 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 export default function ExpiredScreen() {
   const router = useRouter();
   const { t, isRTL } = useLanguage();
-  const { timeString, dateString } = useTime();
   const styles = createStyles(isRTL);
   const insets = useSafeAreaInsets();
   const { hasNew, markSeen } = useNotificationBadge();
@@ -73,55 +71,71 @@ export default function ExpiredScreen() {
           style={[styles.header, { paddingTop: Math.max(insets.top, 8) }]}
         >
           <View style={styles.headerTop}>
-          <View style={styles.headerLeft}>
-            <IconButton
-              icon="cog-outline"
-              size={24}
-              onPress={() => router.push('/settings' as any)}
-              iconColor="#FFFFFF"
-              style={styles.headerIcon}
-            />
-          </View>
-          <View style={styles.headerCenter}>
-            <Text style={styles.headerDate}>{dateString}</Text>
-            <Text style={styles.headerTime}>{timeString}</Text>
-          </View>
-          <View style={styles.headerRight}>
-            <View style={styles.bellWrapper}>
+            <View style={styles.headerLeft}>
               <IconButton
-                icon="bell-outline"
-                size={24}
-                onPress={async () => {
-                  await markSeen();
-                  router.push('/notifications-history' as any);
-                }}
-                iconColor="#FFFFFF"
-                style={[styles.headerIcon, styles.bellIcon]}
+                icon="cog-outline"
+                size={19}
+                onPress={() => router.push('/settings' as any)}
+                iconColor="rgba(255, 255, 255, 0.72)"
+                style={styles.headerIcon}
               />
-              {hasNew && <View style={styles.badgeDot} />}
             </View>
-            <IconButton
-              icon="folder-cog-outline"
-              size={24}
-              onPress={() => router.push('/categories' as any)}
-              iconColor="#FFFFFF"
-              style={styles.headerIcon}
-            />
+            <View style={styles.headerCenter}>
+              <Text style={styles.headerTitle}>{t('screens.expired.title')}</Text>
+              <Text style={styles.headerSubtitle}>
+                {t('screens.expired.total')} {filteredItems.length} {filteredItems.length === 1 ? t('screens.expired.product') : t('screens.expired.products')}
+              </Text>
+            </View>
+            <View style={styles.headerRight}>
+              <View style={styles.bellWrapper}>
+                <IconButton
+                  icon="bell-outline"
+                  size={19}
+                  onPress={async () => {
+                    await markSeen();
+                    router.push('/notifications-history' as any);
+                  }}
+                  iconColor="rgba(255, 255, 255, 0.72)"
+                  style={[styles.headerIcon, styles.bellIcon]}
+                />
+                {hasNew && <View style={styles.badgeDot} />}
+              </View>
+              <IconButton
+                icon="folder-cog-outline"
+                size={19}
+                onPress={() => router.push('/categories' as any)}
+                iconColor="rgba(255, 255, 255, 0.72)"
+                style={styles.headerIcon}
+              />
+            </View>
           </View>
-        </View>
-        <View style={styles.headerContent}>
-          <Text style={styles.headerLabel}>{t('screens.expired.title')}</Text>
-          <Text style={styles.headerCount}>{filteredItems.length} {filteredItems.length === 1 ? t('screens.expired.product') : t('screens.expired.products')}</Text>
-        </View>
         </LinearGradient>
       </View>
 
       <View style={styles.content}>
+        {/* Status Line */}
+        <View style={styles.statusLineContainer}>
+          <Text style={styles.statusLineText}>
+            {(() => {
+              const expiredCount = items.length;
+              
+              if (expiredCount === 0) {
+                return t('screens.expired.statusAllGood');
+              } else if (expiredCount === 1) {
+                return t('screens.expired.statusExpiredSingle');
+              } else {
+                return t('screens.expired.statusExpired', { count: expiredCount });
+              }
+            })()}
+          </Text>
+        </View>
+
         <View style={styles.searchContainer}>
           <SearchBar
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder={t('search.placeholder')}
+            placeholder={t('screens.expired.searchPlaceholder')}
+            elevated
           />
         </View>
 
@@ -161,42 +175,34 @@ function createStyles(isRTL: boolean) {
     elevation: 4, // Reduced for subtlety
   },
   header: {
-    paddingBottom: 8, // Reduced by 20% (from 10 to 8)
-    paddingHorizontal: 20,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
   },
   headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8, // Reduced by 20% (from 10 to 8)
-    minHeight: 32, // Reduced by 20% (from 40 to 32)
-    position: 'relative', // Enable absolute positioning for center
+    minHeight: 56,
+    position: 'relative',
   },
   headerIcon: {
     margin: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)', // Subtle translucent white background (12% opacity)
-    borderRadius: 14, // Rounded corners (14px)
-    minWidth: 44, // Minimum hit-area of 44x44px
-    minHeight: 44,
-    width: 44,
-    height: 44,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    minWidth: 40,
+    minHeight: 40,
+    width: 40,
+    height: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    opacity: 0.7, // Lower opacity to not pull focus
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-start',
-    minWidth: 80,
+    minWidth: 50,
     flexShrink: 0,
     zIndex: 1,
-    paddingStart: 4, // Extra padding so icons don't touch screen edges
   },
   headerCenter: {
     position: 'absolute',
@@ -204,17 +210,17 @@ function createStyles(isRTL: boolean) {
     right: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 0, // Behind the left/right icons
+    zIndex: 0,
+    paddingHorizontal: 60,
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: isRTL ? 'flex-start' : 'flex-end',
-    minWidth: 80,
+    minWidth: 50,
     flexShrink: 0,
-    gap: 18, // Increased spacing between buttons (16-20px)
+    gap: 8,
     zIndex: 1,
-    paddingEnd: 4, // Extra padding so icons don't touch screen edges
   },
   bellIcon: {
     marginStart: 0,
@@ -233,56 +239,43 @@ function createStyles(isRTL: boolean) {
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.9)',
   },
-  headerDate: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '500',
-    opacity: 0.95,
-    textAlign: 'center',
-    letterSpacing: 0.5,
-    marginTop: 2, // Reduced vertical spacing (from 4 to 2)
-    marginBottom: 1, // Reduced vertical spacing (from 2 to 1)
-  },
-  headerTime: {
+  headerTitle: {
     color: '#FFFFFF',
     fontSize: 20,
     fontWeight: '700',
     textAlign: 'center',
-    letterSpacing: 1,
-    textShadowColor: 'rgba(0, 0, 0, 0.1)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  headerContent: {
-    alignItems: 'center',
-    paddingTop: 0,
-  },
-  headerLabel: {
-    color: '#FFFFFF',
-    fontSize: 12, // Reduced by ~8% (13 * 0.92)
-    fontWeight: '400', // Reduced from '500' for softer look
-    opacity: 0.95,
-    marginBottom: 12, // Extra spacing below the title
     letterSpacing: 0.3,
   },
-  headerCount: {
-    color: '#FFFFFF',
-    fontSize: 30.4, // Reduced by 20% (from 38 to 30.4)
-    fontWeight: '700',
-    textShadowColor: 'rgba(0, 0, 0, 0.25)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
-    letterSpacing: 0.5,
+  headerSubtitle: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginTop: 2,
+    letterSpacing: 0.2,
   },
   content: {
     flex: 1,
     backgroundColor: '#F8F9FA',
     marginTop: 0,
   },
+  statusLineContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 10,
+    backgroundColor: '#F8F9FA',
+  },
+  statusLineText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA3AF',
+    textAlign: isRTL ? 'right' : 'left',
+    letterSpacing: 0.15,
+  },
   searchContainer: {
     paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 6,
+    paddingTop: 10,
+    paddingBottom: 8,
     backgroundColor: '#F8F9FA',
   },
   });

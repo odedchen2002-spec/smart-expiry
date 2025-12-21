@@ -5,7 +5,6 @@ import { TrialReminderDialog } from '@/components/subscription/TrialReminderDial
 import { Trial5DayReminderDialog } from '@/components/subscription/Trial5DayReminderDialog';
 import { UpgradeBanner } from '@/components/subscription/UpgradeBanner';
 import { useLanguage } from '@/context/LanguageContext';
-import { useTime } from '@/context/TimeContext';
 import { THEME_COLORS } from '@/lib/constants/colors';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
 import { useItems } from '@/lib/hooks/useItems';
@@ -25,7 +24,6 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 export default function AllScreen() {
   const router = useRouter();
   const { t, isRTL } = useLanguage();
-  const { timeString, dateString } = useTime();
   const insets = useSafeAreaInsets();
   const screenHeight = Dimensions.get('window').height;
   const { activeOwnerId, loading: ownerLoading } = useActiveOwner();
@@ -156,72 +154,104 @@ export default function AllScreen() {
           style={[styles.header, { paddingTop: Math.max(insets.top, 8) }]}
         >
           <View style={styles.headerTop}>
-          <View style={styles.headerLeft}>
-            <IconButton
-              icon="cog-outline"
-              size={24}
-              onPress={() => router.push('/settings' as any)}
-              iconColor="#FFFFFF"
-              style={styles.headerIcon}
-            />
-          </View>
-          <View style={styles.headerCenter}>
-            <Text style={styles.headerDate}>{dateString}</Text>
-            <Text style={styles.headerTime}>{timeString}</Text>
-          </View>
-          <View style={styles.headerRight}>
-            <View style={styles.bellWrapper}>
+            <View style={styles.headerLeft}>
               <IconButton
-                icon="bell-outline"
-                size={24}
-                onPress={async () => {
-                  await markSeen();
-                  router.push('/notifications-history' as any);
-                }}
-                iconColor="#FFFFFF"
-                style={[styles.headerIcon, styles.bellIcon]}
+                icon="cog-outline"
+                size={19}
+                onPress={() => router.push('/settings' as any)}
+                iconColor="rgba(255, 255, 255, 0.72)"
+                style={styles.headerIcon}
               />
-              {hasNew && <View style={styles.badgeDot} />}
             </View>
-            <IconButton
-              icon="folder-cog-outline"
-              size={24}
-              onPress={() => router.push('/categories' as any)}
-              iconColor="#FFFFFF"
-              style={styles.headerIcon}
-            />
+            <View style={styles.headerCenter}>
+              <Text style={styles.headerTitle}>{t('screens.all.title')}</Text>
+              <Text style={styles.headerSubtitle}>
+                {t('screens.all.total')} {filteredItems.length} {filteredItems.length === 1 ? t('screens.all.product') : t('screens.all.products')}
+              </Text>
+            </View>
+            <View style={styles.headerRight}>
+              <View style={styles.bellWrapper}>
+                <IconButton
+                  icon="bell-outline"
+                  size={19}
+                  onPress={async () => {
+                    await markSeen();
+                    router.push('/notifications-history' as any);
+                  }}
+                  iconColor="rgba(255, 255, 255, 0.72)"
+                  style={[styles.headerIcon, styles.bellIcon]}
+                />
+                {hasNew && <View style={styles.badgeDot} />}
+              </View>
+              <IconButton
+                icon="folder-cog-outline"
+                size={19}
+                onPress={() => router.push('/categories' as any)}
+                iconColor="rgba(255, 255, 255, 0.72)"
+                style={styles.headerIcon}
+              />
+            </View>
           </View>
-        </View>
-        <View style={styles.headerContent}>
-          <Text style={styles.headerLabel}>{t('screens.all.title')}</Text>
-          <Text style={styles.headerCount}>{filteredItems.length} {filteredItems.length === 1 ? t('screens.all.product') : t('screens.all.products')}</Text>
-        </View>
         </LinearGradient>
       </View>
 
       <View style={styles.content}>
-        <View style={styles.filtersContainer}>
-          <SearchBar
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder={t('search.placeholder')}
-          />
-          
-          <View style={[styles.filterRow, rtlContainer]}>
-            <Chip
-              icon="filter-variant"
-              onPress={() => setFilterMenuVisible(true)}
-              style={styles.filterChipOuter}
-              mode={hasActiveFilters ? 'flat' : 'outlined'}
-              selected={hasActiveFilters}
-              selectedColor={hasActiveFilters ? THEME_COLORS.primary : undefined}
-            >
-              {hasActiveFilters 
-                ? t('filters.active')
-                : t('filters.title')
+        {/* Status Line */}
+        <View style={styles.statusLineContainer}>
+          <Text style={styles.statusLineText}>
+            {(() => {
+              // Count items that need attention (expiring within 7 days or already expired)
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              const needsAttention = items.filter(item => {
+                if (item.status === 'resolved' || !item.expiry_date) return false;
+                const expiryDate = new Date(item.expiry_date);
+                expiryDate.setHours(0, 0, 0, 0);
+                const daysUntil = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                return daysUntil <= 7;
+              }).length;
+              
+              if (needsAttention === 0) {
+                return t('screens.all.statusAllGood');
+              } else if (needsAttention === 1) {
+                return t('screens.all.statusNeedsAttentionSingle');
+              } else {
+                return t('screens.all.statusNeedsAttention', { count: needsAttention });
               }
-            </Chip>
-            {hasActiveFilters && (
+            })()}
+          </Text>
+        </View>
+
+        <View style={styles.filtersContainer}>
+          {/* Search Bar Row with Filter Button */}
+          <View style={[styles.searchFilterRow, rtlContainer]}>
+            <View style={styles.searchBarWrapper}>
+              <SearchBar
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder={t('screens.all.searchPlaceholder')}
+                elevated
+              />
+            </View>
+            
+            <TouchableOpacity
+              style={[
+                styles.filterButton,
+                hasActiveFilters && styles.filterButtonActive
+              ]}
+              onPress={() => setFilterMenuVisible(true)}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons 
+                name="filter-variant" 
+                size={20} 
+                color={hasActiveFilters ? '#FFFFFF' : '#6B7280'} 
+              />
+            </TouchableOpacity>
+          </View>
+          
+          {hasActiveFilters && (
+            <View style={[styles.activeFilterRow, rtlContainer]}>
               <Chip
                 icon="close-circle"
                 onPress={handleClearFilters}
@@ -231,8 +261,8 @@ export default function AllScreen() {
               >
                 {t('common.clear')}
               </Chip>
-            )}
-          </View>
+            </View>
+          )}
 
           <Modal
             visible={filterMenuVisible}
@@ -448,42 +478,34 @@ const createStyles = (isRTL: boolean) => StyleSheet.create({
     elevation: 4, // Reduced for subtlety
   },
   header: {
-    paddingBottom: 8, // Reduced by 20% (from 10 to 8)
-    paddingHorizontal: 20,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
   },
   headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8, // Reduced by 20% (from 10 to 8)
-    minHeight: 32, // Reduced by 20% (from 40 to 32)
-    position: 'relative', // Enable absolute positioning for center
+    minHeight: 56,
+    position: 'relative',
   },
   headerIcon: {
     margin: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)', // Subtle translucent white background (12% opacity)
-    borderRadius: 14, // Rounded corners (14px)
-    minWidth: 44, // Minimum hit-area of 44x44px
-    minHeight: 44,
-    width: 44,
-    height: 44,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    minWidth: 40,
+    minHeight: 40,
+    width: 40,
+    height: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    opacity: 0.7, // Lower opacity to not pull focus
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-start',
-    minWidth: 80,
+    minWidth: 50,
     flexShrink: 0,
     zIndex: 1,
-    paddingStart: 4, // Extra padding so icons don't touch screen edges
   },
   headerCenter: {
     position: 'absolute',
@@ -491,17 +513,17 @@ const createStyles = (isRTL: boolean) => StyleSheet.create({
     right: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 0, // Behind the left/right icons
+    zIndex: 0,
+    paddingHorizontal: 60,
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: isRTL ? 'flex-start' : 'flex-end',
-    minWidth: 80,
+    minWidth: 50,
     flexShrink: 0,
-    gap: 18, // Increased spacing between buttons (16-20px)
+    gap: 8,
     zIndex: 1,
-    paddingEnd: 4, // Extra padding so icons don't touch screen edges
   },
   bellIcon: {
     marginStart: 0,
@@ -520,56 +542,71 @@ const createStyles = (isRTL: boolean) => StyleSheet.create({
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.9)',
   },
-  headerDate: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '500',
-    opacity: 0.95,
-    textAlign: 'center',
-    letterSpacing: 0.5,
-    marginTop: 2, // Reduced vertical spacing (from 4 to 2)
-    marginBottom: 1, // Reduced vertical spacing (from 2 to 1)
-  },
-  headerTime: {
+  headerTitle: {
     color: '#FFFFFF',
     fontSize: 20,
     fontWeight: '700',
     textAlign: 'center',
-    letterSpacing: 1,
-    textShadowColor: 'rgba(0, 0, 0, 0.1)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  headerContent: {
-    alignItems: 'center',
-    paddingTop: 0,
-  },
-  headerLabel: {
-    color: '#FFFFFF',
-    fontSize: 12, // Reduced by ~8% (13 * 0.92)
-    fontWeight: '400', // Reduced from '500' for softer look
-    opacity: 0.95,
-    marginBottom: 12, // Extra spacing below the title
     letterSpacing: 0.3,
   },
-  headerCount: {
-    color: '#FFFFFF',
-    fontSize: 30.4, // Reduced by 20% (from 38 to 30.4)
-    fontWeight: '700',
-    textShadowColor: 'rgba(0, 0, 0, 0.25)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
-    letterSpacing: 0.5,
+  headerSubtitle: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginTop: 2,
+    letterSpacing: 0.2,
   },
   content: {
     flex: 1,
     backgroundColor: '#F8F9FA',
   },
+  statusLineContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 10,
+    backgroundColor: '#F8F9FA',
+  },
+  statusLineText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA3AF',
+    textAlign: isRTL ? 'right' : 'left',
+    letterSpacing: 0.15,
+  },
   filtersContainer: {
     paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 6,
+    paddingTop: 10,
+    paddingBottom: 8,
     backgroundColor: '#F8F9FA',
+  },
+  searchFilterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  searchBarWrapper: {
+    flex: 1,
+  },
+  filterButton: {
+    width: 44,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  filterButtonActive: {
+    backgroundColor: THEME_COLORS.primary,
+    borderColor: THEME_COLORS.primary,
+  },
+  activeFilterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    gap: 8,
   },
   filterRow: {
     flexDirection: 'row',

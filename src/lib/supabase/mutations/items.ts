@@ -1,5 +1,8 @@
 /**
  * Items mutations for Supabase
+ * 
+ * Note: The `items` table uses `owner_id` (not `store_id`).
+ * See src/lib/supabase/ownerUtils.ts for naming convention documentation.
  */
 
 import { supabase } from '../client';
@@ -326,6 +329,8 @@ export async function resolveItem(
 
 /**
  * Delete expired items that have exceeded the retention period
+ * IMPORTANT: Logs EXPIRED_AUTO_ARCHIVED events before deletion to preserve history
+ * 
  * @param ownerId - The owner ID
  * @param retentionDays - Number of days to retain expired items (0 = disabled)
  * @returns Number of items deleted
@@ -346,11 +351,11 @@ export async function deleteExpiredItemsByRetention(
     cutoffDate.setDate(today.getDate() - retentionDays);
     const cutoffDateISO = cutoffDate.toISOString().split('T')[0];
 
-    // Find expired items that should be deleted
+    // Find expired items that should be deleted - include more fields for event logging
     // Items that expired before the cutoff date
     const { data: itemsToDelete, error: fetchError } = await supabase
       .from('items')
-      .select('id, product_id, owner_id')
+      .select('id, product_id, owner_id, expiry_date, barcode_snapshot')
       .eq('owner_id', ownerId)
       .lt('expiry_date', cutoffDateISO)
       .neq('status', 'resolved'); // Don't delete already resolved items
@@ -362,6 +367,39 @@ export async function deleteExpiredItemsByRetention(
 
     if (!itemsToDelete || itemsToDelete.length === 0) {
       return 0;
+    }
+
+    // Fetch product names for event logging
+    const productIds = [...new Set(itemsToDelete.map(item => item.product_id).filter(Boolean))];
+    let productsMap = new Map<string, string>();
+    
+    if (productIds.length > 0) {
+      const { data: products } = await supabase
+        .from('products')
+        .select('id, name')
+        .in('id', productIds);
+      
+      if (products) {
+        productsMap = new Map(products.map((p: any) => [p.id, p.name]));
+      }
+    }
+
+    // Log EXPIRED_AUTO_ARCHIVED events BEFORE deleting (preserve history)
+    try {
+      const { logExpiredAutoArchivedBatch } = await import('../services/expiryEventsService');
+      
+      const eventsToLog = itemsToDelete.map((item: any) => ({
+        batchId: item.id,
+        barcode: item.barcode_snapshot || undefined,
+        productName: item.product_id ? productsMap.get(item.product_id) : undefined,
+        expiryDate: item.expiry_date,
+      }));
+
+      const loggedCount = await logExpiredAutoArchivedBatch(ownerId, eventsToLog);
+      console.log(`[Auto-Delete] Logged ${loggedCount} EXPIRED_AUTO_ARCHIVED events`);
+    } catch (logError) {
+      // Don't block deletion if event logging fails
+      console.error('[Auto-Delete] Error logging expiry events (continuing with deletion):', logError);
     }
 
     // Delete all items that should be removed

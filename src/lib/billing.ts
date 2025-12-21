@@ -2,8 +2,9 @@
  * Billing abstraction layer
  * Centralizes all subscription purchase logic behind a single interface
  * 
- * This allows us to swap payment providers (Stripe, Apple, Google) later
- * without changing the UI or business logic.
+ * IMPORTANT: Actual prices come from App Store / Play Store via IAP.
+ * The priceMonthly values here are only fallbacks for display before IAP loads.
+ * Always use the localized price from useIAP() hook for actual display.
  */
 
 import { supabase } from './supabase/client';
@@ -13,13 +14,17 @@ export type SubscriptionTier = 'free' | 'pro';
 export type SubscriptionPlan = {
   id: SubscriptionTier;
   label: string;
-  priceMonthly: number; // in NIS
+  /** Fallback price - actual localized price comes from App Store / Play Store */
+  priceMonthly: number;
   maxItems: number | null; // null = unlimited
 };
 
 /**
  * Subscription plans configuration
- * This is the single source of truth for plan definitions
+ * 
+ * NOTE: The priceMonthly values are fallbacks only.
+ * Localized pricing is fetched from App Store / Play Store via IAP.
+ * Use the useIAP() hook to get the actual localized price string.
  */
 export const SUBSCRIPTION_PLANS: Record<SubscriptionTier, SubscriptionPlan> = {
   free: {
@@ -31,7 +36,7 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionTier, SubscriptionPlan> = {
   pro: {
     id: 'pro',
     label: 'פרו',
-    priceMonthly: 29,
+    priceMonthly: 29, // Fallback - actual price from store
     maxItems: null, // unlimited
   },
 };

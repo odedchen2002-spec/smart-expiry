@@ -114,6 +114,10 @@ async function sendPushNotifications(tokens: string[], title: string, body: stri
     title,
     body,
     priority: 'high',
+    // Android: use 'default' channel (must match the channel created in the app)
+    channelId: 'default',
+    // iOS: configure how notification appears when app is in foreground
+    _contentAvailable: true,
     data: {
       source: 'supabase-edge',
       type: 'expiry_notification',
@@ -221,19 +225,17 @@ async function getExpiringItemsForOwner(
   const nowUtc = DateTime.utc();
   const localNow = nowUtc.setZone(timezone);
   const targetDay = localNow.plus({ days: daysBefore });
-  const targetStart = targetDay.startOf('day').toUTC();
-  const targetEnd = targetDay.endOf('day').toUTC();
+  
+  // Use local date directly since expiry_date is stored as a simple date (YYYY-MM-DD)
+  // without timezone info. Converting to UTC can span two calendar days due to timezone offset.
+  const targetDateStr = targetDay.toFormat('yyyy-MM-dd');
 
-  const targetStartStr = targetStart.toFormat('yyyy-MM-dd');
-  const targetEndStr = targetEnd.toFormat('yyyy-MM-dd');
-
-  // Fetch items
+  // Fetch items - use exact date match since expiry_date is stored as YYYY-MM-DD
   const { data: items, error } = await supabase
     .from('items')
     .select('id, owner_id, expiry_date, status, is_plan_locked, product_id')
     .eq('owner_id', ownerId)
-    .gte('expiry_date', targetStartStr)
-    .lte('expiry_date', targetEndStr);
+    .eq('expiry_date', targetDateStr);
 
   if (error) {
     console.error(`[check-expiring-items] ownerId=${ownerId}, stage=fetchItems, error:`, {

@@ -1,17 +1,19 @@
 import React, { useCallback, useState, useEffect, useMemo } from 'react';
 import { View, StyleSheet, SectionList, TouchableOpacity } from 'react-native';
-import { Appbar, Card, Text, IconButton, Snackbar, Divider } from 'react-native-paper';
+import { Appbar, Card, Text, IconButton, Snackbar, Divider, ActivityIndicator } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
 import { useLanguage } from '@/context/LanguageContext';
+import { useCategoryProducts } from '@/context/CategoryProductsContext';
+import { useDebounce } from '@/lib/hooks/useDebounce';
 import {
   getDefaultCategory,
-  getProductsNotInCategory,
   updateProductCategory,
 } from '@/lib/supabase/queries/categories';
 import { SearchBar } from '@/components/search/SearchBar';
 import type { Database } from '@/types/database';
 import { getRtlTextStyles, getRtlContainerStyles } from '@/lib/utils/rtlStyles';
+import { THEME_COLORS } from '@/lib/constants/colors';
 
 type Product = Database['public']['Tables']['products']['Row'];
 
@@ -26,6 +28,14 @@ export default function AddProductsToCategoryScreen() {
   const rtlContainer = getRtlContainerStyles(isRTL);
   const rtlText = getRtlTextStyles(isRTL);
   const { activeOwnerId } = useActiveOwner();
+  const {
+    getProductsNotInCategory: getProductsNotInCategoryCache,
+    refreshProductsNotInCategory,
+    addProductOptimistic,
+    removeProductFromNotInCategory,
+    isRefreshingNotInCategory,
+    hasNotInCategoryCache,
+  } = useCategoryProducts();
   const params = useLocalSearchParams<{ category?: string }>();
 
   const defaultCategory = getDefaultCategory();
@@ -35,36 +45,51 @@ export default function AddProductsToCategoryScreen() {
   const categoryName = categoryParam || defaultCategory;
   const supabaseCategory = categoryName === defaultCategory ? null : categoryName;
 
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(false);
   const [addingIds, setAddingIds] = useState<Record<string, boolean>>({});
   const [snack, setSnack] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery] = useDebounce(searchQuery, 300);
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
 
-  const loadProducts = useCallback(async () => {
-    if (!activeOwnerId) return;
-    setLoading(true);
-    const available = await getProductsNotInCategory(activeOwnerId, supabaseCategory);
-    setProducts(available);
-    setLoading(false);
-  }, [activeOwnerId, supabaseCategory]);
+  // Get products from cache
+  const products = useMemo(() => getProductsNotInCategoryCache(supabaseCategory), [getProductsNotInCategoryCache, supabaseCategory]);
+  const hasCachedData = hasNotInCategoryCache(supabaseCategory);
+  const refreshing = isRefreshingNotInCategory(supabaseCategory);
 
+  // Load on mount: show cached data immediately, then refresh in background if stale
   useEffect(() => {
-    loadProducts();
-  }, [loadProducts]);
+    if (!activeOwnerId) return;
+
+    const load = async () => {
+      // If we have cache, refresh in background if stale
+      if (hasCachedData) {
+        await refreshProductsNotInCategory(supabaseCategory, false);
+      } else {
+        // No cache - fetch from network in background
+        refreshProductsNotInCategory(supabaseCategory, true); // Don't await - let it run in background
+      }
+    };
+
+    load();
+  }, [activeOwnerId, supabaseCategory, hasCachedData, refreshProductsNotInCategory]);
 
   const handleAddProduct = async (product: Product) => {
     if (!activeOwnerId) return;
     setAddingIds((prev) => ({ ...prev, [product.id]: true }));
-    setProducts((prev) => prev.filter((p) => p.id !== product.id));
+
+    // Optimistically update: remove from "not in category" list and add to category cache
+    removeProductFromNotInCategory(supabaseCategory, product.id);
+    const updatedProduct = { ...product, category: supabaseCategory };
+    addProductOptimistic(supabaseCategory, updatedProduct);
 
     try {
       await updateProductCategory(product.id, supabaseCategory);
       setSnack(t('categories.productAdded') || 'הפריט נוסף לקטגוריה');
     } catch (error) {
       console.error('Failed to add product to category:', error);
-      setProducts((prev) => [product, ...prev]);
       setSnack(t('categories.productAddError') || 'נכשל בהוספת הפריט');
+      // Revert optimistic updates on error - refresh will fix it
+      await refreshProductsNotInCategory(supabaseCategory, true);
     } finally {
       setAddingIds((prev) => {
         const next = { ...prev };
@@ -74,12 +99,13 @@ export default function AddProductsToCategoryScreen() {
     }
   };
 
+  // Filter products locally with debounced search query
   const filteredProducts = useMemo(() => {
-    if (!searchQuery.trim()) {
+    if (!debouncedSearchQuery || !debouncedSearchQuery.trim()) {
       return products;
     }
 
-    const query = searchQuery.toLowerCase().trim();
+    const query = debouncedSearchQuery.toLowerCase().trim();
     return products.filter((product) => {
       // Search in product name
       const productName = product.name?.toLowerCase() || '';
@@ -91,7 +117,7 @@ export default function AddProductsToCategoryScreen() {
 
       return false;
     });
-  }, [products, searchQuery]);
+  }, [products, debouncedSearchQuery]);
 
   const sections = useMemo(() => {
     // Group products by category
@@ -117,6 +143,18 @@ export default function AddProductsToCategoryScreen() {
 
     return sectionsArray;
   }, [filteredProducts, defaultCategory]);
+
+  const toggleCategory = (title: string) => {
+    setCollapsedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(title)) {
+        next.delete(title);
+      } else {
+        next.add(title);
+      }
+      return next;
+    });
+  };
 
   const renderItem = ({ item }: { item: Product }) => (
     <Card style={styles.card}>
@@ -156,29 +194,76 @@ export default function AddProductsToCategoryScreen() {
         placeholder={t('search.placeholder') || 'חפש מוצרים...'}
       />
 
+      {refreshing && filteredProducts.length > 0 && (
+        <View style={styles.refreshingIndicator}>
+          <ActivityIndicator size="small" color={THEME_COLORS.primary} />
+          <Text style={[styles.refreshingText, rtlText]}>
+            {t('common.updating') || 'מעדכן...'}
+          </Text>
+        </View>
+      )}
+
       <SectionList
-        sections={sections}
+        sections={sections.map((section) => ({
+          ...section,
+          data: collapsedCategories.has(section.title) ? [] : section.data,
+        }))}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         renderItem={renderItem}
-        renderSectionHeader={({ section }) => (
-          <View style={styles.sectionHeader}>
-            <Text variant="titleMedium" style={[styles.sectionTitle, rtlText]}>
-              {section.title === defaultCategory 
-                ? t('categories.uncategorized') || defaultCategory
-                : section.title}
-            </Text>
-            <Divider style={styles.sectionDivider} />
-          </View>
-        )}
+        renderSectionHeader={({ section }) => {
+          const isCollapsed = collapsedCategories.has(section.title);
+          // Get original data length from sections array
+          const originalSection = sections.find((s) => s.title === section.title);
+          const itemCount = originalSection?.data.length || 0;
+          return (
+            <View style={styles.sectionHeader}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => toggleCategory(section.title)}
+                style={[styles.sectionHeaderRow, rtlContainer]}
+              >
+                <View style={styles.sectionHeaderText}>
+                  <Text variant="titleMedium" style={[styles.sectionTitle, rtlText]}>
+                    {section.title === defaultCategory
+                      ? t('categories.uncategorized') || defaultCategory
+                      : section.title}
+                  </Text>
+                  <Text style={[styles.sectionSubtitle, rtlText]}>
+                    {itemCount}{' '}
+                    {itemCount === 1
+                      ? t('common.product') || 'מוצר'
+                      : t('common.products') || 'מוצרים'}
+                  </Text>
+                </View>
+                <IconButton
+                  icon={isCollapsed ? (isRTL ? 'chevron-left' : 'chevron-right') : 'chevron-down'}
+                  size={20}
+                  iconColor="#9CA3AF"
+                  style={styles.sectionToggleIcon}
+                />
+              </TouchableOpacity>
+              <Divider style={styles.sectionDivider} />
+            </View>
+          );
+        }}
         ListEmptyComponent={
-          <Text style={[styles.emptyText, rtlText]}>
-            {loading
-              ? t('common.loading') || 'טוען...'
-              : searchQuery.trim()
-              ? t('search.noResults') || 'לא נמצאו תוצאות'
-              : t('categories.noAvailableProducts') || 'אין מוצרים זמינים להוספה'}
-          </Text>
+          <View style={styles.emptyContainer}>
+            {refreshing && filteredProducts.length === 0 ? (
+              <>
+                <ActivityIndicator size="small" color={THEME_COLORS.primary} />
+                <Text style={[styles.emptyText, rtlText, styles.emptyTextWithSpinner]}>
+                  {t('common.loading') || 'טוען...'}
+                </Text>
+              </>
+            ) : (
+              <Text style={[styles.emptyText, rtlText]}>
+                {debouncedSearchQuery && debouncedSearchQuery.trim()
+                  ? t('search.noResults') || 'לא נמצאו תוצאות'
+                  : t('categories.noAvailableProducts') || 'אין מוצרים זמינים להוספה'}
+              </Text>
+            )}
+          </View>
         }
         stickySectionHeadersEnabled={false}
       />
@@ -221,26 +306,77 @@ const styles = StyleSheet.create({
     marginTop: 4,
     opacity: 0.7,
   },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 48,
+  },
   emptyText: {
     textAlign: 'center',
-    marginTop: 40,
     color: '#9E9E9E',
+    fontSize: 15,
+  },
+  emptyTextWithSpinner: {
+    marginTop: 12,
   },
   sectionHeader: {
-    paddingHorizontal: 16,
     paddingTop: 20,
     paddingBottom: 8,
     backgroundColor: '#F8F9FA',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  sectionHeaderText: {
+    flex: 1,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
     color: '#212121',
-    marginBottom: 8,
+    marginBottom: 2,
+  },
+  sectionSubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+  },
+  sectionToggleIcon: {
+    margin: 0,
   },
   sectionDivider: {
     backgroundColor: '#E0E0E0',
     height: 1,
+    marginHorizontal: 16,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 48,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 15,
+    color: '#757575',
+  },
+  refreshingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: '#F8F9FA',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E0E0E0',
+  },
+  refreshingText: {
+    marginStart: 8,
+    fontSize: 13,
+    color: '#757575',
   },
 });
 

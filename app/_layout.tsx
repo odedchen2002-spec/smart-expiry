@@ -2,8 +2,12 @@ import { LanguageOnboarding } from '@/components/onboarding/LanguageOnboarding';
 import { WelcomeExplanationDialog } from '@/components/onboarding/WelcomeExplanationDialog';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { LanguageProvider, useLanguage } from '@/context/LanguageContext';
+import { CategoriesProvider } from '@/context/CategoriesContext';
+import { CategoryProductsProvider } from '@/context/CategoryProductsContext';
+import { DatePickerStyleProvider } from '@/context/DatePickerStyleContext';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
 import { initPushNotificationsForUser } from '@/lib/notifications/initPushNotifications';
+import { initializeIAP, disconnectIAP } from '@/lib/iap/iapService';
 import { useSupabaseClient } from '@/lib/supabase/useSupabaseClient';
 import { theme } from '@/lib/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -13,7 +17,7 @@ import Constants from 'expo-constants';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef } from 'react';
-import { Platform, View } from 'react-native';
+import { Platform, View, AppState } from 'react-native';
 import { ActivityIndicator, PaperProvider } from 'react-native-paper';
 import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -24,6 +28,8 @@ const RECOVERY_FLAG_KEY = 'password_recovery_active';
 
 // Configure notification handler - simple, all notifications shown normally
 // Expiry notifications are now sent server-side as regular Expo push notifications
+// IMPORTANT: This must be called at module load time (outside any component)
+// to ensure notifications are handled even when app is in foreground
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     console.log('[Notification Handler] Called with notification:', JSON.stringify(notification, null, 2));
@@ -41,6 +47,25 @@ Notifications.setNotificationHandler({
     return result as any;
   },
 });
+
+// Set up Android notification channel at module load time
+// This ensures the channel exists before any notifications arrive
+if (Platform.OS === 'android') {
+  Notifications.setNotificationChannelAsync('default', {
+    name: 'התראות תפוגה',
+    description: 'התראות על מוצרים שעומדים לפוג',
+    importance: Notifications.AndroidImportance.MAX,
+    vibrationPattern: [0, 250, 250, 250],
+    lightColor: '#FF6B6B',
+    sound: 'default',
+    enableVibrate: true,
+    showBadge: true,
+  }).then(() => {
+    console.log('[Notifications] Android notification channel created');
+  }).catch((error) => {
+    console.warn('[Notifications] Error creating Android notification channel:', error);
+  });
+}
 
 // Component to register push notifications when user is authenticated
 // This component is completely isolated from auth flow - errors here won't affect authentication
@@ -105,6 +130,43 @@ function PushNotificationRegistration() {
   return null;
 }
 
+// Component to initialize In-App Purchases
+// Connects to App Store / Play Store and fetches localized pricing
+function IAPInitialization() {
+  const didInitRef = useRef(false);
+
+  useEffect(() => {
+    if (didInitRef.current) return;
+    didInitRef.current = true;
+
+    // Initialize IAP in the background
+    initializeIAP().then((success) => {
+      if (success) {
+        console.log('[IAP] Initialized successfully');
+      } else {
+        console.log('[IAP] Failed to initialize (may not be available on this device)');
+      }
+    }).catch((error) => {
+      console.warn('[IAP] Initialization error:', error);
+    });
+
+    // Clean up IAP connection when app is terminated
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        // Don't disconnect immediately - just log
+        console.log('[IAP] App going to background');
+      }
+    });
+
+    return () => {
+      subscription.remove();
+      disconnectIAP();
+    };
+  }, []);
+
+  return null;
+}
+
 function AppContent() {
   const { languageReady, hasLanguageChoice } = useLanguage();
 
@@ -126,6 +188,8 @@ function AppContent() {
     <>
       {/* Push notification registration - runs after auth is fully settled */}
       <PushNotificationRegistration />
+      {/* Initialize IAP and fetch localized pricing from App Store / Play Store */}
+      <IAPInitialization />
       {/* Welcome explanation dialog - shows once on first app open after signup */}
       <WelcomeExplanationDialog />
       <Stack
@@ -321,10 +385,16 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <LanguageProvider>
         <AuthProvider>
-          <PaperProvider theme={theme}>
-            <StatusBar style="auto" />
-            <AppContent />
-          </PaperProvider>
+          <DatePickerStyleProvider>
+            <CategoriesProvider>
+              <CategoryProductsProvider>
+                <PaperProvider theme={theme}>
+                  <StatusBar style="auto" />
+                  <AppContent />
+                </PaperProvider>
+              </CategoryProductsProvider>
+            </CategoriesProvider>
+          </DatePickerStyleProvider>
         </AuthProvider>
       </LanguageProvider>
     </SafeAreaProvider>

@@ -24,122 +24,234 @@ export default function PrivacyScreen() {
 
       <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
         <Text variant="headlineSmall" style={[styles.title, rtlText]}>
-          {t('info.privacy.heading') || 'מדיניות פרטיות – ExpiryX'}
+          {t('info.privacy.heading')}
         </Text>
 
         <Text style={[styles.updated, rtlText]}>
-          {t('info.privacy.updated') || 'עודכן: 2025'}
+          {t('info.privacy.updated')}
         </Text>
 
         <Text style={[styles.paragraph, rtlText]}>
-          {t('info.privacy.intro') ||
-            'מדיניות פרטיות זו מסבירה איזה מידע נאסף באפליקציה וכיצד הוא משמש.'}
+          {t('info.privacy.intro')}
+        </Text>
+        <Text style={[styles.paragraph, rtlText]}>
+          {t('info.privacy.intro2')}
+        </Text>
+        <Text style={[styles.paragraph, rtlText]}>
+          {t('info.privacy.intro3')}
         </Text>
 
+        {/* Section 1 */}
         <Text variant="titleMedium" style={[styles.sectionTitle, rtlText]}>
-          {t('info.privacy.section1Title') || '1. מידע שנאסף'}
+          {t('info.privacy.section1Title')}
+        </Text>
+        
+        <Text variant="titleSmall" style={[styles.subsectionTitle, rtlText]}>
+          {t('info.privacy.section1Subtitle')}
         </Text>
         <Text style={[styles.paragraph, rtlText]}>
-          {t('info.privacy.section1BodyIntro') || 'האפליקציה עשויה לאסוף:'}
+          {t('info.privacy.section1Body1')}
         </Text>
         <Text style={[styles.paragraph, styles.bullet, rtlText]}>
-          • {t('info.privacy.section1Bullet1') || 'כתובת אימייל'}
+          • {t('info.privacy.section1Bullet1')}
         </Text>
         <Text style={[styles.paragraph, styles.bullet, rtlText]}>
-          • {t('info.privacy.section1Bullet2') || 'פרטי מוצרים ותאריכי תפוגה'}
+          • {t('info.privacy.section1Bullet2')}
         </Text>
         <Text style={[styles.paragraph, styles.bullet, rtlText]}>
-          • {t('info.privacy.section1Bullet3') || 'מזהה מכשיר להתראות (Push Token)'}
+          • {t('info.privacy.section1Bullet3')}
         </Text>
         <Text style={[styles.paragraph, styles.bullet, rtlText]}>
-          • {t('info.privacy.section1Bullet4') ||
-            'מידע טכני בסיסי (גרסת מערכת, סוג מכשיר, לוגים)'}
+          • {t('info.privacy.section1Bullet4')}
         </Text>
-        <Text style={[styles.paragraph, rtlText]}>
-          {t('info.privacy.section1Body2') ||
-            'אין איסוף מיקום, אנשי קשר או מידע בלתי רלוונטי.'}
+        <Text style={[styles.paragraph, styles.bullet, rtlText]}>
+          • {t('info.privacy.section1Bullet5')}
         </Text>
 
-        <Text variant="titleMedium" style={[styles.sectionTitle, rtlText]}>
-          {t('info.privacy.section2Title') || '2. שימוש במידע'}
+        <Text variant="titleSmall" style={[styles.subsectionTitle, rtlText]}>
+          {t('info.privacy.section1Subtitle2')}
         </Text>
         <Text style={[styles.paragraph, rtlText]}>
-          {t('info.privacy.section2BodyIntro') || 'המידע משמש ל:'}
+          {t('info.privacy.section1Body2')}
         </Text>
         <Text style={[styles.paragraph, styles.bullet, rtlText]}>
-          • {t('info.privacy.section2Bullet1') || 'שמירה וניהול של רשימת המוצרים'}
+          • {t('info.privacy.section1Bullet6')}
         </Text>
         <Text style={[styles.paragraph, styles.bullet, rtlText]}>
-          • {t('info.privacy.section2Bullet2') || 'שליחת התראות'}
+          • {t('info.privacy.section1Bullet7')}
         </Text>
         <Text style={[styles.paragraph, styles.bullet, rtlText]}>
-          • {t('info.privacy.section2Bullet3') || 'שיפור חוויית המשתמש'}
+          • {t('info.privacy.section1Bullet8')}
         </Text>
         <Text style={[styles.paragraph, styles.bullet, rtlText]}>
-          • {t('info.privacy.section2Bullet4') || 'אבטחה ותחזוקת מערכת'}
+          • {t('info.privacy.section1Bullet9')}
         </Text>
 
+        {/* Section 2 */}
         <Text variant="titleMedium" style={[styles.sectionTitle, rtlText]}>
-          {t('info.privacy.section3Title') || '3. העברת מידע לצד שלישי'}
+          {t('info.privacy.section2Title')}
         </Text>
         <Text style={[styles.paragraph, rtlText]}>
-          {t('info.privacy.section3BodyIntro') ||
-            'המידע עשוי להישמר או לעבור דרך שירותים חיצוניים מאובטחים:'}
+          {t('info.privacy.section2Body1')}
         </Text>
         <Text style={[styles.paragraph, styles.bullet, rtlText]}>
-          • {t('info.privacy.section3Bullet1') || 'Supabase – אחסון ואימות משתמשים'}
+          • {t('info.privacy.section2Bullet1')}
         </Text>
         <Text style={[styles.paragraph, styles.bullet, rtlText]}>
-          • {t('info.privacy.section3Bullet2') || 'Expo / Firebase – לטובת התראות Push'}
+          • {t('info.privacy.section2Bullet2')}
         </Text>
-        <Text style={[styles.paragraph, rtlText]}>
-          {t('info.privacy.section3Body2') ||
-            'לא מתבצע מכירה של מידע לצדדים שלישיים.'}
+        <Text style={[styles.paragraph, styles.bullet, rtlText]}>
+          • {t('info.privacy.section2Bullet3')}
+        </Text>
+        <Text style={[styles.paragraph, styles.bullet, rtlText]}>
+          • {t('info.privacy.section2Bullet4')}
+        </Text>
+        <Text style={[styles.paragraph, styles.bullet, rtlText]}>
+          • {t('info.privacy.section2Bullet5')}
+        </Text>
+        <Text style={[styles.paragraph, styles.bullet, rtlText]}>
+          • {t('info.privacy.section2Bullet6')}
+        </Text>
+        <Text style={[styles.paragraph, styles.bullet, rtlText]}>
+          • {t('info.privacy.section2Bullet7')}
         </Text>
 
+        {/* Section 3 */}
         <Text variant="titleMedium" style={[styles.sectionTitle, rtlText]}>
-          {t('info.privacy.section4Title') || '4. אבטחת מידע'}
+          {t('info.privacy.section3Title')}
         </Text>
         <Text style={[styles.paragraph, rtlText]}>
-          {t('info.privacy.section4Body1') ||
-            'הנתונים נשמרים באמצעי אבטחה סבירים הכוללים הצפנה ותקני אבטחה מקובלים.'}
+          {t('info.privacy.section3Body1')}
         </Text>
         <Text style={[styles.paragraph, rtlText]}>
-          {t('info.privacy.section4Body2') ||
-            'אין אפשרות להבטיח אבטחה מלאה לחלוטין.'}
-        </Text>
-
-        <Text variant="titleMedium" style={[styles.sectionTitle, rtlText]}>
-          {t('info.privacy.section5Title') || '5. זכויות המשתמש'}
-        </Text>
-        <Text style={[styles.paragraph, rtlText]}>
-          {t('info.privacy.section5BodyIntro') || 'המשתמש רשאי:'}
+          {t('info.privacy.section3Body2')}
         </Text>
         <Text style={[styles.paragraph, styles.bullet, rtlText]}>
-          • {t('info.privacy.section5Bullet1') || 'למחוק את הנתונים שלו'}
+          • {t('info.privacy.section3Bullet1')}
         </Text>
         <Text style={[styles.paragraph, styles.bullet, rtlText]}>
-          • {t('info.privacy.section5Bullet2') || 'לעדכן מידע'}
+          • {t('info.privacy.section3Bullet2')}
         </Text>
         <Text style={[styles.paragraph, styles.bullet, rtlText]}>
-          • {t('info.privacy.section5Bullet3') ||
-            'לבקש עותק מהמידע שנשמר עליו'}
-        </Text>
-
-        <Text variant="titleMedium" style={[styles.sectionTitle, rtlText]}>
-          {t('info.privacy.section6Title') || '6. ילדים'}
+          • {t('info.privacy.section3Bullet3')}
         </Text>
         <Text style={[styles.paragraph, rtlText]}>
-          {t('info.privacy.section6Body1') ||
-            'האפליקציה אינה מיועדת לילדים מתחת לגיל 13 ואינה אוספת מידע ביודעין מקטינים.'}
+          {t('info.privacy.section3Body3')}
         </Text>
 
+        {/* Section 4 */}
         <Text variant="titleMedium" style={[styles.sectionTitle, rtlText]}>
-          {t('info.privacy.section7Title') || '7. יצירת קשר'}
+          {t('info.privacy.section4Title')}
         </Text>
         <Text style={[styles.paragraph, rtlText]}>
-          {t('info.privacy.section7Body1') ||
-            'לשאלות בנוגע לפרטיות ניתן לפנות לכתובת האימייל המופיעה באפליקציה.'}
+          {t('info.privacy.section4Body1')}
+        </Text>
+        <Text style={[styles.paragraph, styles.bullet, rtlText]}>
+          • {t('info.privacy.section4Bullet1')}
+        </Text>
+        <Text style={[styles.paragraph, styles.bullet, rtlText]}>
+          • {t('info.privacy.section4Bullet2')}
+        </Text>
+        <Text style={[styles.paragraph, styles.bullet, rtlText]}>
+          • {t('info.privacy.section4Bullet3')}
+        </Text>
+        <Text style={[styles.paragraph, rtlText]}>
+          {t('info.privacy.section4Body2')}
+        </Text>
+
+        {/* Section 5 */}
+        <Text variant="titleMedium" style={[styles.sectionTitle, rtlText]}>
+          {t('info.privacy.section5Title')}
+        </Text>
+        <Text style={[styles.paragraph, rtlText]}>
+          {t('info.privacy.section5Body1')}
+        </Text>
+        <Text style={[styles.paragraph, rtlText]}>
+          {t('info.privacy.section5Body2')}
+        </Text>
+
+        {/* Section 6 */}
+        <Text variant="titleMedium" style={[styles.sectionTitle, rtlText]}>
+          {t('info.privacy.section6Title')}
+        </Text>
+        <Text style={[styles.paragraph, rtlText]}>
+          {t('info.privacy.section6Body1')}
+        </Text>
+        <Text style={[styles.paragraph, rtlText]}>
+          {t('info.privacy.section6Body2')}
+        </Text>
+
+        {/* Section 7 */}
+        <Text variant="titleMedium" style={[styles.sectionTitle, rtlText]}>
+          {t('info.privacy.section7Title')}
+        </Text>
+        <Text style={[styles.paragraph, rtlText]}>
+          {t('info.privacy.section7Body1')}
+        </Text>
+        <Text style={[styles.paragraph, rtlText]}>
+          {t('info.privacy.section7Body2')}
+        </Text>
+
+        {/* Section 8 */}
+        <Text variant="titleMedium" style={[styles.sectionTitle, rtlText]}>
+          {t('info.privacy.section8Title')}
+        </Text>
+        <Text style={[styles.paragraph, rtlText]}>
+          {t('info.privacy.section8Body1')}
+        </Text>
+        <Text style={[styles.paragraph, rtlText]}>
+          {t('info.privacy.section8Body2')}
+        </Text>
+        <Text style={[styles.paragraph, rtlText]}>
+          {t('info.privacy.section8Body3')}
+        </Text>
+        <Text style={[styles.paragraph, rtlText]}>
+          {t('info.privacy.section8Body4')}
+        </Text>
+
+        {/* Section 9 */}
+        <Text variant="titleMedium" style={[styles.sectionTitle, rtlText]}>
+          {t('info.privacy.section9Title')}
+        </Text>
+        <Text style={[styles.paragraph, rtlText]}>
+          {t('info.privacy.section9Body1')}
+        </Text>
+        <Text style={[styles.paragraph, styles.bullet, rtlText]}>
+          • {t('info.privacy.section9Bullet1')}
+        </Text>
+        <Text style={[styles.paragraph, styles.bullet, rtlText]}>
+          • {t('info.privacy.section9Bullet2')}
+        </Text>
+        <Text style={[styles.paragraph, styles.bullet, rtlText]}>
+          • {t('info.privacy.section9Bullet3')}
+        </Text>
+        <Text style={[styles.paragraph, styles.bullet, rtlText]}>
+          • {t('info.privacy.section9Bullet4')}
+        </Text>
+        <Text style={[styles.paragraph, rtlText]}>
+          {t('info.privacy.section9Body2')}
+        </Text>
+
+        {/* Section 10 */}
+        <Text variant="titleMedium" style={[styles.sectionTitle, rtlText]}>
+          {t('info.privacy.section10Title')}
+        </Text>
+        <Text style={[styles.paragraph, rtlText]}>
+          {t('info.privacy.section10Body1')}
+        </Text>
+        <Text style={[styles.paragraph, rtlText]}>
+          {t('info.privacy.section10Body2')}
+        </Text>
+
+        {/* Section 11 */}
+        <Text variant="titleMedium" style={[styles.sectionTitle, rtlText]}>
+          {t('info.privacy.section11Title')}
+        </Text>
+        <Text style={[styles.paragraph, rtlText]}>
+          {t('info.privacy.section11Body1')}
+        </Text>
+        <Text style={[styles.paragraph, rtlText]}>
+          {t('info.privacy.section11Body2')}
         </Text>
       </ScrollView>
     </View>
@@ -148,42 +260,48 @@ export default function PrivacyScreen() {
 
 function createStyles(isRTL: boolean) {
   return StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  content: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 20,
-  },
-  title: {
-    fontWeight: '700',
-    marginBottom: 8,
-    textAlign: isRTL ? 'right' : 'left',
-  },
-  updated: {
-    fontSize: 14,
-    color: '#757575',
-    marginBottom: 24,
-    textAlign: isRTL ? 'right' : 'left',
-  },
-  sectionTitle: {
-    fontWeight: '600',
-    marginTop: 24,
-    marginBottom: 12,
-    textAlign: isRTL ? 'right' : 'left',
-  },
-  paragraph: {
-    fontSize: 16,
-    lineHeight: 24,
-    marginBottom: 12,
-    textAlign: isRTL ? 'right' : 'left',
-    color: '#212121',
-  },
-  bullet: {
-    marginStart: 16,
-  },
+    container: {
+      flex: 1,
+    },
+    content: {
+      flex: 1,
+    },
+    scrollContent: {
+      padding: 20,
+    },
+    title: {
+      fontWeight: '700',
+      marginBottom: 8,
+      textAlign: isRTL ? 'right' : 'left',
+    },
+    updated: {
+      fontSize: 14,
+      color: '#757575',
+      marginBottom: 24,
+      textAlign: isRTL ? 'right' : 'left',
+    },
+    sectionTitle: {
+      fontWeight: '600',
+      marginTop: 24,
+      marginBottom: 12,
+      textAlign: isRTL ? 'right' : 'left',
+    },
+    subsectionTitle: {
+      fontWeight: '600',
+      marginTop: 16,
+      marginBottom: 8,
+      textAlign: isRTL ? 'right' : 'left',
+      color: '#424242',
+    },
+    paragraph: {
+      fontSize: 16,
+      lineHeight: 24,
+      marginBottom: 12,
+      textAlign: isRTL ? 'right' : 'left',
+      color: '#212121',
+    },
+    bullet: {
+      marginStart: 16,
+    },
   });
 }
-

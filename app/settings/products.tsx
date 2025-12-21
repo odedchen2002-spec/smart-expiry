@@ -13,18 +13,23 @@ import {
   Switch,
   RadioButton,
   List,
+  Portal,
+  Dialog,
 } from 'react-native-paper';
 import Slider from '@react-native-community/slider';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLanguage } from '@/context/LanguageContext';
+import { useDatePickerStyleContext, DatePickerStyle } from '@/context/DatePickerStyleContext';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
 import { deleteExpiredItemsByRetention } from '@/lib/supabase/mutations/items';
 import { getRtlTextStyles, getRtlContainerStyles } from '@/lib/utils/rtlStyles';
 import { THEME_COLORS } from '@/lib/constants/colors';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
-export type DatePickerStyle = 'calendar' | 'spinner';
+export type { DatePickerStyle };
+
+const DEFAULT_RETENTION_DAYS = 7;
 
 export default function ManageProductsScreen() {
   const router = useRouter();
@@ -34,24 +39,22 @@ export default function ManageProductsScreen() {
   const rtlTextCenter = getRtlTextStyles(isRTL, 'center');
   const styles = createStyles(isRTL);
   const { activeOwnerId } = useActiveOwner();
-  const [retentionDays, setRetentionDays] = useState(7);
-  const [datePickerStyle, setDatePickerStyle] = useState<DatePickerStyle>('spinner');
+  const { datePickerStyle, setDatePickerStyle } = useDatePickerStyleContext();
+  const [retentionDays, setRetentionDays] = useState(DEFAULT_RETENTION_DAYS);
+  const [originalRetentionDays, setOriginalRetentionDays] = useState(DEFAULT_RETENTION_DAYS);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<{ retentionDays?: string }>({});
   const [hasLoadedInitialValues, setHasLoadedInitialValues] = useState(false);
+  const [showWarningDialog, setShowWarningDialog] = useState(false);
   const previousOwnerIdRef = useRef<string | null>(null);
   const savedRetentionDaysRef = useRef<number | null>(null);
   const hasEverSavedRef = useRef(false);
 
   // Storage keys for persisting saved values
+  // Use the same key as app/index.tsx for consistency
   const getRetentionDaysStorageKey = () => {
     if (!activeOwnerId) return null;
-    return `saved_retention_days_${activeOwnerId}`;
-  };
-
-  const getDatePickerStyleStorageKey = () => {
-    if (!activeOwnerId) return null;
-    return `date_picker_style_${activeOwnerId}`;
+    return `retention_days_${activeOwnerId}`;
   };
 
   // Load saved values from AsyncStorage on mount
@@ -70,18 +73,13 @@ export default function ManageProductsScreen() {
               savedRetentionDaysRef.current = savedValue;
               hasEverSavedRef.current = true;
               setRetentionDays(savedValue);
+              setOriginalRetentionDays(savedValue);
             }
+          } else {
+            setOriginalRetentionDays(DEFAULT_RETENTION_DAYS);
           }
         }
-
-        // Load saved date picker style
-        const styleKey = getDatePickerStyleStorageKey();
-        if (styleKey) {
-          const savedStyle = await AsyncStorage.getItem(styleKey);
-          if (savedStyle === 'calendar' || savedStyle === 'spinner') {
-            setDatePickerStyle(savedStyle as DatePickerStyle);
-          }
-        }
+        // Note: datePickerStyle is now managed by DatePickerStyleContext
       } catch (error) {
         console.error('[ManageProducts] Error loading saved values:', error);
       }
@@ -107,9 +105,7 @@ export default function ManageProductsScreen() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSave = async () => {
-    if (!validate() || !activeOwnerId) return;
-
+  const doSave = async () => {
     setSaving(true);
     try {
       // Save settings to AsyncStorage (per owner)
@@ -119,12 +115,7 @@ export default function ManageProductsScreen() {
         if (retentionKey) {
           await AsyncStorage.setItem(retentionKey, retentionDays.toString());
         }
-
-        // Save date picker style
-        const styleKey = getDatePickerStyleStorageKey();
-        if (styleKey) {
-          await AsyncStorage.setItem(styleKey, datePickerStyle);
-        }
+        // Note: datePickerStyle is saved immediately by DatePickerStyleContext when changed
 
         console.log(`[ManageProducts] Saved settings to AsyncStorage for owner ${activeOwnerId}`);
       } catch (storageError) {
@@ -165,6 +156,22 @@ export default function ManageProductsScreen() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSave = async () => {
+    if (!validate() || !activeOwnerId) return;
+
+    // Show warning if reducing retention days (could cause immediate deletion)
+    if (retentionDays < originalRetentionDays) {
+      setShowWarningDialog(true);
+    } else {
+      doSave();
+    }
+  };
+
+  const handleConfirmWarning = () => {
+    setShowWarningDialog(false);
+    doSave();
   };
 
   return (
@@ -387,6 +394,43 @@ export default function ManageProductsScreen() {
           </Button>
         </View>
       </ScrollView>
+
+      {/* Warning Dialog */}
+      <Portal>
+        <Dialog 
+          visible={showWarningDialog} 
+          onDismiss={() => setShowWarningDialog(false)}
+          style={styles.warningDialog}
+        >
+          <Dialog.Title style={styles.warningDialogTitle}>
+            {t('common.warning') || 'אזהרה'}
+          </Dialog.Title>
+          <Dialog.Content>
+            <Text style={styles.warningDialogContent}>
+              {t('settings.autoDelete.deleteWarning') || 
+                'שינוי זה עלול לגרום למחיקה מיידית של מוצרים שפג תוקפם לפני יותר ממספר הימים שהגדרת. האם אתה בטוח?'}
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions style={styles.warningDialogActions}>
+            <Button 
+              onPress={() => setShowWarningDialog(false)}
+              style={styles.warningCancelButton}
+              labelStyle={styles.warningCancelButtonLabel}
+            >
+              {t('common.cancel') || 'ביטול'}
+            </Button>
+            <Button 
+              onPress={handleConfirmWarning}
+              mode="contained"
+              buttonColor="#EF5350"
+              style={styles.warningConfirmButton}
+              labelStyle={styles.warningConfirmButtonLabel}
+            >
+              {t('common.confirm') || 'אישור'}
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </View>
   );
 }
@@ -587,6 +631,51 @@ function createStyles(isRTL: boolean) {
     margin: 0,
     marginLeft: isRTL ? 0 : 8,
     marginRight: isRTL ? 8 : 0,
+  },
+  warningDialog: {
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+  },
+  warningDialogTitle: {
+    textAlign: 'center',
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#212121',
+    paddingTop: 24,
+  },
+  warningDialogContent: {
+    textAlign: 'center',
+    fontSize: 15,
+    lineHeight: 22,
+    color: '#616161',
+    paddingHorizontal: 8,
+  },
+  warningDialogActions: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    paddingTop: 8,
+    gap: 12,
+  },
+  warningCancelButton: {
+    flex: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  warningCancelButtonLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#757575',
+  },
+  warningConfirmButton: {
+    flex: 1,
+    borderRadius: 12,
+    elevation: 0,
+  },
+  warningConfirmButtonLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
   });
 }

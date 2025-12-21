@@ -26,27 +26,73 @@ export async function getNotificationHistory(
   userId: string,
   ownerId: string
 ): Promise<NotificationHistory[]> {
+  const result = await getNotificationHistoryPaginated(userId, ownerId, 100);
+  return result.data;
+}
+
+/**
+ * Pagination result for notification history
+ */
+export interface NotificationHistoryPage {
+  data: NotificationHistory[];
+  hasMore: boolean;
+  nextCursor?: string;
+}
+
+/**
+ * Get notification history with pagination support
+ * @param userId - User ID
+ * @param ownerId - Owner ID
+ * @param limit - Number of items to fetch (default 20)
+ * @param cursor - Cursor for pagination (last notification id from previous page)
+ */
+export async function getNotificationHistoryPaginated(
+  userId: string,
+  ownerId: string,
+  limit: number = 20,
+  cursor?: string
+): Promise<NotificationHistoryPage> {
   // Calculate date 30 days ago
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
   const thirtyDaysAgoISO = thirtyDaysAgo.toISOString();
 
-  // Query notifications by owner_id
-  const { data, error } = await supabase
+  // Build query
+  let query = supabase
     .from('notification_sent_log')
     .select('id,user_id,owner_id,created_at,status,expo_push_ticket')
     .eq('user_id', userId)
     .eq('owner_id', ownerId)
-    .gte('created_at', thirtyDaysAgoISO) // Only notifications from the last 30 days
+    .gte('created_at', thirtyDaysAgoISO)
     .order('created_at', { ascending: false })
-    .limit(100);
+    .limit(limit + 1); // Fetch one extra to check if there's more
+
+  // If cursor provided, fetch items after that id
+  if (cursor) {
+    // Get the created_at of the cursor notification to paginate correctly
+    const { data: cursorData } = await supabase
+      .from('notification_sent_log')
+      .select('created_at')
+      .eq('id', cursor)
+      .single();
+    
+    if (cursorData) {
+      query = query.lt('created_at', cursorData.created_at);
+    }
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     console.error('Error fetching notification history:', error);
     throw error;
   }
 
-  const mapped: NotificationHistory[] = (data || []).map((row: any) => {
+  const items = data || [];
+  const hasMore = items.length > limit;
+  const pageItems = hasMore ? items.slice(0, limit) : items;
+
+  const mapped: NotificationHistory[] = pageItems.map((row: any) => {
     const ticket = row.expo_push_ticket || {};
     // Extract notification type from data, fallback to 'expiry_reminder' for backward compatibility
     const notificationType = ticket.data?.type || 'expiry_reminder';
@@ -65,7 +111,11 @@ export async function getNotificationHistory(
     };
   });
 
-  return mapped;
+  return {
+    data: mapped,
+    hasMore,
+    nextCursor: hasMore && mapped.length > 0 ? mapped[mapped.length - 1].id : undefined,
+  };
 }
 
 /**

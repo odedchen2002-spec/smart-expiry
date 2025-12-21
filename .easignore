@@ -1,0 +1,22 @@
+# dependencies
+node_modules
+
+# expo / react native
+.expo
+.expo-shared
+web-build
+dist
+
+# native builds / caches
+android/.gradle
+android/app/build
+android/build
+ios/build
+
+# logs
+*.log
+
+# env
+.env
+.env.*
+

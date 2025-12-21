@@ -53,7 +53,7 @@ export default function AddScreen() {
   const { user } = useAuth();
   const { activeOwnerId, isOwner, loading: ownerLoading, isViewer } = useActiveOwner();
   const { profile } = useProfile();
-  const { datePickerStyle } = useDatePickerStyle();
+  const { datePickerStyle, loading: datePickerStyleLoading } = useDatePickerStyle();
   const params = useLocalSearchParams<{ 
     barcode?: string; 
     itemId?: string; 
@@ -920,50 +920,52 @@ export default function AddScreen() {
 
                 <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
                   <View style={[styles.datePickerContainer, { backgroundColor: theme.colors.surfaceVariant }]}>
-                    <DateTimePicker
-                      value={selectedDate < minDate ? minDate : selectedDate}
-                      mode="date"
-                      display={
-                        datePickerStyle === 'calendar' 
-                          ? (Platform.OS === 'ios' ? 'inline' : 'default')
-                          : (Platform.OS === 'ios' ? 'spinner' : 'default')
-                      }
-                      minimumDate={minDate}
-                      onChange={(event, date) => {
-                        if (Platform.OS === 'android') {
-                          if (event.type === 'set' && date && date >= minDate) {
-                            setSelectedDate(date);
-                            setExpiryDate(formatDateDDMMYYYY(date));
-                            setShowDatePicker(false);
-                            // If form was hidden (barcode scan flow), show it now and focus product name
-                            if (!showForm && !isEditing && (Boolean(barcode) || isManualEntry)) {
-                              setShowForm(true);
-                              setTimeout(() => {
-                                productNameInputRef.current?.focus();
-                              }, 100);
-                            }
-                          } else if (event.type === 'dismissed') {
-                            setShowDatePicker(false);
-                            // If form was hidden and user dismisses date picker, show form anyway
-                            if (!showForm && !isEditing && (Boolean(barcode) || isManualEntry)) {
-                              setShowForm(true);
-                            }
-                          } else if (date && date >= minDate) {
-                            setSelectedDate(date);
-                          }
-                        } else {
-                          // iOS
-                          if (date && date >= minDate) {
-                            setSelectedDate(date);
-                          }
+                    {!datePickerStyleLoading && (
+                      <DateTimePicker
+                        value={selectedDate < minDate ? minDate : selectedDate}
+                        mode="date"
+                        display={
+                          datePickerStyle === 'calendar' 
+                            ? (Platform.OS === 'ios' ? 'inline' : 'default')
+                            : (Platform.OS === 'ios' ? 'spinner' : 'default')
                         }
-                      }}
-                      style={styles.datePicker}
-                      textColor={theme.colors.onSurface}
-                      accentColor={datePickerStyle === 'calendar' ? THEME_COLORS.primary : "white"}
-                      themeVariant="light"
-                      locale="he_IL"
-                    />
+                        minimumDate={minDate}
+                        onChange={(event, date) => {
+                          if (Platform.OS === 'android') {
+                            if (event.type === 'set' && date && date >= minDate) {
+                              setSelectedDate(date);
+                              setExpiryDate(formatDateDDMMYYYY(date));
+                              setShowDatePicker(false);
+                              // If form was hidden (barcode scan flow), show it now and focus product name
+                              if (!showForm && !isEditing && (Boolean(barcode) || isManualEntry)) {
+                                setShowForm(true);
+                                setTimeout(() => {
+                                  productNameInputRef.current?.focus();
+                                }, 100);
+                              }
+                            } else if (event.type === 'dismissed') {
+                              setShowDatePicker(false);
+                              // If form was hidden and user dismisses date picker, show form anyway
+                              if (!showForm && !isEditing && (Boolean(barcode) || isManualEntry)) {
+                                setShowForm(true);
+                              }
+                            } else if (date && date >= minDate) {
+                              setSelectedDate(date);
+                            }
+                          } else {
+                            // iOS
+                            if (date && date >= minDate) {
+                              setSelectedDate(date);
+                            }
+                          }
+                        }}
+                        style={styles.datePicker}
+                        textColor={theme.colors.onSurface}
+                        accentColor={datePickerStyle === 'calendar' ? THEME_COLORS.primary : "white"}
+                        themeVariant="light"
+                        locale="he_IL"
+                      />
+                    )}
                   </View>
                 </View>
 

@@ -539,38 +539,40 @@ export default function SettingsScreen() {
 
             <View style={styles.divider} />
 
-            <TouchableOpacity 
+            {/* Terms of Use – button to summary screen */}
+            <TouchableOpacity
               style={styles.settingRow}
-              onPress={() => router.push('/(info)/terms' as any)}
+              onPress={() => router.push('/(info)/terms-summary' as any)}
               activeOpacity={0.6}
             >
               <View style={[styles.settingContent, rtlContainer]}>
                 <Text variant="bodyLarge" style={[rtlText, styles.settingTitle]}>
-                  {t('info.terms.title') || 'תנאי שימוש'}
+                  {t('info.termsSummary.title')}
                 </Text>
               </View>
-              <List.Icon 
-                icon="file-document-outline" 
-                color={THEME_COLORS.text} 
+              <List.Icon
+                icon="file-document-outline"
+                color={THEME_COLORS.text}
                 style={styles.rowIcon}
               />
             </TouchableOpacity>
 
             <View style={styles.divider} />
 
-            <TouchableOpacity 
+            {/* Privacy Policy – button to summary screen */}
+            <TouchableOpacity
               style={styles.settingRow}
-              onPress={() => router.push('/(info)/privacy' as any)}
+              onPress={() => router.push('/(info)/privacy-summary' as any)}
               activeOpacity={0.6}
             >
               <View style={[styles.settingContent, rtlContainer]}>
                 <Text variant="bodyLarge" style={[rtlText, styles.settingTitle]}>
-                  {t('info.privacy.title') || 'מדיניות פרטיות'}
+                  {t('info.privacySummary.title')}
                 </Text>
               </View>
-              <List.Icon 
-                icon="shield-check-outline" 
-                color={THEME_COLORS.text} 
+              <List.Icon
+                icon="shield-check-outline"
+                color={THEME_COLORS.text}
                 style={styles.rowIcon}
               />
             </TouchableOpacity>
@@ -962,6 +964,44 @@ function createStyles(isRTL: boolean) {
     fontSize: 15,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  legalSummaryContainer: {
+    paddingVertical: 6,
+  },
+  legalSummaryTitle: {
+    fontWeight: '600',
+    marginBottom: 4,
+    color: '#212121',
+  },
+  legalSummaryText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: THEME_COLORS.textSecondary,
+    marginBottom: 2,
+  },
+  legalSummaryBullets: {
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  legalSummaryBullet: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: THEME_COLORS.textSecondary,
+  },
+  legalSummaryLinkRow: {
+    flexDirection: isRTL ? 'row-reverse' : 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  legalSummaryLink: {
+    fontSize: 14,
+    color: THEME_COLORS.primary,
+    fontWeight: '500',
+  },
+  legalSummaryLinkIcon: {
+    marginHorizontal: 4,
+    width: 18,
+    height: 18,
   },
   languageRow: {
     flexDirection: 'row',

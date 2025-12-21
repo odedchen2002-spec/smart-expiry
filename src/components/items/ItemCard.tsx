@@ -6,6 +6,7 @@
 import { useLanguage } from '@/context/LanguageContext';
 import { STATUS_COLORS, THEME_COLORS } from '@/lib/constants/colors';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
+import { useDatePickerStyle } from '@/lib/hooks/useDatePickerStyle';
 import { deleteItem, updateItem } from '@/lib/supabase/mutations/items';
 import { getRTLMargin, getRtlContainerStyles, getRtlTextStyles } from '@/lib/utils/rtlStyles';
 import type { Database } from '@/types/database';
@@ -29,6 +30,7 @@ export function ItemCard({ item, onRefresh }: ItemCardProps) {
   const { t, isRTL } = useLanguage();
   const theme = useTheme();
   const { isViewer } = useActiveOwner();
+  const { datePickerStyle, loading: datePickerStyleLoading } = useDatePickerStyle();
   const rtlContainer = getRtlContainerStyles(isRTL);
   const rtlText = getRtlTextStyles(isRTL);
   const rtlTextDate = getRtlTextStyles(isRTL, 'date');
@@ -382,22 +384,24 @@ export function ItemCard({ item, onRefresh }: ItemCardProps) {
                 </View>
                 <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
                   <View style={[styles.datePickerContainer, { backgroundColor: theme.colors.surfaceVariant }]}>
-                    <DateTimePicker
-                      value={selectedDate < minDate ? minDate : selectedDate}
-                      mode="date"
-                      display={
-                        datePickerStyle === 'calendar' 
-                          ? (Platform.OS === 'ios' ? 'inline' : 'default')
-                          : (Platform.OS === 'ios' ? 'spinner' : 'default')
-                      }
-                      minimumDate={minDate}
-                      onChange={handleDateChange}
-                      style={styles.datePicker}
-                      textColor={theme.colors.onSurface}
-                      accentColor={datePickerStyle === 'calendar' ? THEME_COLORS.primary : "white"}
-                      themeVariant="light"
-                      locale="he_IL"
-                    />
+                    {!datePickerStyleLoading && (
+                      <DateTimePicker
+                        value={selectedDate < minDate ? minDate : selectedDate}
+                        mode="date"
+                        display={
+                          datePickerStyle === 'calendar' 
+                            ? (Platform.OS === 'ios' ? 'inline' : 'default')
+                            : (Platform.OS === 'ios' ? 'spinner' : 'default')
+                        }
+                        minimumDate={minDate}
+                        onChange={handleDateChange}
+                        style={styles.datePicker}
+                        textColor={theme.colors.onSurface}
+                        accentColor={datePickerStyle === 'calendar' ? THEME_COLORS.primary : "white"}
+                        themeVariant="light"
+                        locale="he_IL"
+                      />
+                    )}
                   </View>
                 </View>
                 <View style={[styles.modalFooter, { borderTopColor: theme.colors.surfaceVariant }]}>

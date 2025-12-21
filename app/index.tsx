@@ -115,23 +115,36 @@ export default function Index() {
   }, [user?.id, authLoading, ownerLoading, profileLoading]);
 
   // Run auto-delete for expired items on app startup (only for owners)
+  // Default: 7 days retention period (delete items expired more than 7 days ago)
+  const DEFAULT_RETENTION_DAYS = 7;
+  
   useEffect(() => {
     const runAutoDelete = async () => {
       // Only run auto-delete for owners, not collaborators
       if (!activeOwnerId || !isOwner || authLoading || ownerLoading) return;
       
-      // Get retention days from profile (if stored there) or use default
-      // TODO: Add retention_days_after_expiry to profiles table if needed
-      const retentionDays = 0; // Default to disabled for now
-      
-      if (retentionDays <= 0) {
-        return; // Auto-delete disabled
-      }
-
       try {
+        // Get retention days from AsyncStorage, use default if not set
+        const key = `retention_days_${activeOwnerId}`;
+        const saved = await AsyncStorage.getItem(key);
+        
+        // Use saved value if exists, otherwise use default (7 days)
+        // Value of "0" means explicitly disabled by user
+        let retentionDays: number;
+        if (saved !== null) {
+          const parsed = parseInt(saved, 10);
+          retentionDays = isNaN(parsed) ? DEFAULT_RETENTION_DAYS : parsed;
+        } else {
+          retentionDays = DEFAULT_RETENTION_DAYS; // Default enabled
+        }
+        
+        if (retentionDays <= 0) {
+          return; // Explicitly disabled by user
+        }
+
         const deletedCount = await deleteExpiredItemsByRetention(activeOwnerId, retentionDays);
         if (deletedCount > 0) {
-          console.log(`[Auto-Delete] Deleted ${deletedCount} expired items on app startup`);
+          console.log(`[Auto-Delete] Deleted ${deletedCount} expired items on app startup (retention: ${retentionDays} days)`);
         }
       } catch (error) {
         console.error('Error running auto-delete on app startup:', error);
@@ -142,8 +155,12 @@ export default function Index() {
     runAutoDelete();
   }, [activeOwnerId, isOwner, authLoading, ownerLoading]);
 
-  // Show splash screen while auth status is being determined
-  if (status === 'loading') {
+  // Show splash screen while auth status is being determined or while essential data is loading
+  // This ensures smooth transition without flickering between screens
+  const essentialLoading = authLoading || (profileLoading && !loadingTimeout) || (ownerLoading && !loadingTimeout);
+  const nonEssentialLoading = subscriptionLoading || checkingGuide;
+  
+  if (status === 'loading' || essentialLoading || (nonEssentialLoading && !loadingTimeout)) {
     return <SplashScreen />;
   }
 
@@ -158,25 +175,6 @@ export default function Index() {
   // This ensures immediate redirect to login without white screen
   if (status === 'unauthenticated' || !user) {
     return <Redirect href="/(auth)/login" />;
-  }
-
-  // Show loading while checking auth, owner, profile, subscription, guide status
-  // Only show loading if we have a user (when user is null, we already redirected above)
-  // Use same background as login screen to avoid white flash
-  // Don't wait forever - use timeout to prevent infinite loading
-  // Only wait for essential checks: auth and profile (we need these)
-  // Don't wait for subscription or guide - these can load in background
-  const essentialLoading = authLoading || (profileLoading && !loadingTimeout) || (ownerLoading && !loadingTimeout);
-  const nonEssentialLoading = subscriptionLoading || checkingGuide;
-  
-  // Show loading only for essential checks, or non-essential if timeout hasn't been reached
-  if (essentialLoading || (nonEssentialLoading && !loadingTimeout)) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F7FB' }}>
-        <ActivityIndicator size="large" color="#42A5F5" />
-        <Text style={{ marginTop: 16, color: '#5F6B7A' }}>Loading...</Text>
-      </View>
-    );
   }
 
   // Only proceed with authenticated user checks if status is explicitly 'authenticated'

@@ -1,19 +1,19 @@
-import { Tabs, useFocusEffect } from 'expo-router';
 import { useLanguage } from '@/context/LanguageContext';
 import { TimeProvider } from '@/context/TimeContext';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { View, TouchableOpacity, StyleSheet, Text } from 'react-native';
-import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
 import { useItems } from '@/lib/hooks/useItems';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { Tabs, useFocusEffect } from 'expo-router';
 import { useCallback, useRef } from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface FloatingTabBarProps extends BottomTabBarProps {
-  expiredCount?: number;
+  expiringCount?: number;
 }
 
-function FloatingTabBar({ state, descriptors, navigation, expiredCount = 0 }: FloatingTabBarProps) {
+function FloatingTabBar({ state, descriptors, navigation, expiringCount = 0 }: FloatingTabBarProps) {
   const insets = useSafeAreaInsets();
 
   return (
@@ -29,7 +29,8 @@ function FloatingTabBar({ state, descriptors, navigation, expiredCount = 0 }: Fl
               : route.name;
 
           const isFocused = state.index === index;
-          const color = isFocused ? '#0F172A' : '#6B7280';
+          // Blue for active, black for inactive (inspired by the design)
+          const color = isFocused ? '#007AFF' : '#1C1C1E';
 
           const onPress = () => {
             const event = navigation.emit({
@@ -59,18 +60,18 @@ function FloatingTabBar({ state, descriptors, navigation, expiredCount = 0 }: Fl
               onPress={onPress}
               onLongPress={onLongPress}
               style={styles.tabButton}
-              activeOpacity={0.9}
+              activeOpacity={0.7}
             >
               <View style={[styles.tabPill, isFocused && styles.tabPillActive]}>
                 <View style={styles.iconContainer}>
                   {options.tabBarIcon
-                    ? options.tabBarIcon({ focused: isFocused, color, size: 20 })
+                    ? options.tabBarIcon({ focused: isFocused, color, size: 22 })
                     : null}
-                  {/* Show expired count badge on expired tab */}
-                  {route.name === 'expired' && expiredCount > 0 && (
+                  {/* Show expiring count badge on expired tab */}
+                  {route.name === 'expired' && expiringCount > 0 && (
                     <View style={styles.badge}>
                       <Text style={styles.badgeText}>
-                        {expiredCount > 99 ? '99+' : expiredCount}
+                        {expiringCount > 99 ? '99+' : expiringCount}
                       </Text>
                     </View>
                   )}
@@ -91,7 +92,7 @@ export default function TabsLayout() {
   const { t } = useLanguage();
   const { activeOwnerId } = useActiveOwner();
   
-  // Get expired items count for badge
+  // Get expired items count for badge (items that have already expired)
   const { items: expiredItems, totalItemsCount, refetch: refetchExpired } = useItems({
     scope: 'expired',
     ownerId: activeOwnerId || undefined,
@@ -119,20 +120,21 @@ export default function TabsLayout() {
   // For expired scope, items equals allItems (no subscription limits applied)
   // Use totalItemsCount which is allItems.length for the most accurate count
   // This should reflect all expired items from the database query
-  const expiredCount = totalItemsCount || 0;
+  const expiringCount = totalItemsCount || 0;
 
   return (
     <TimeProvider>
       <Tabs
-        initialRouteName="all"
+        initialRouteName="home"
         screenOptions={{
           headerShown: false,
           lazy: false, // Keep all tabs mounted in memory
           freezeOnBlur: false, // Don't freeze screens when blurred (keeps them active)
           detachInactiveScreens: false, // Keep inactive screens mounted
         }}
-        tabBar={(props) => <FloatingTabBar {...props} expiredCount={expiredCount} />}
+        tabBar={(props) => <FloatingTabBar {...props} expiringCount={expiringCount} />}
       >
+      {/* Tab order: Scan, Home, All, Expiring (4 tabs exactly) */}
       <Tabs.Screen
         name="scanner"
         options={{
@@ -140,6 +142,16 @@ export default function TabsLayout() {
           tabBarLabel: t('screens.scan.title'),
           tabBarIcon: ({ color }) => (
             <MaterialCommunityIcons name="barcode-scan" size={22} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="home"
+        options={{
+          title: t('home.title') || 'Home',
+          tabBarLabel: t('home.title') || 'Home',
+          tabBarIcon: ({ color }) => (
+            <MaterialCommunityIcons name="home" size={22} color={color} />
           ),
         }}
       />
@@ -174,50 +186,50 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: '6%', // Use percentage instead of fixed pixels
-    maxWidth: 600, // Prevent tab bar from being too wide on tablets
-    alignSelf: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: 'transparent',
   },
   tabBar: {
+    width: 320,
     flexDirection: 'row',
-    backgroundColor: 'rgba(248, 250, 252, 0.95)',
-    borderRadius: 999,
-    padding: 6,
-    gap: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 28,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    gap: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 24,
+    elevation: 12,
+    // Subtle border for definition
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.04)',
   },
   tabButton: {
     flex: 1,
   },
   tabPill: {
-    flexDirection: 'row',
+    flexDirection: 'column', // Vertical layout - icon above text
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: 999,
+    gap: 2,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 18,
   },
   tabPillActive: {
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 6,
+    backgroundColor: '#F0F0F0', // Subtle gray background for active tab
   },
   tabLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#6B7280',
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#1C1C1E', // Black text for inactive
   },
   tabLabelActive: {
-    color: '#0F172A',
+    color: '#007AFF', // Blue text for active
+    fontWeight: '600',
   },
   iconContainer: {
     position: 'relative',
@@ -227,7 +239,7 @@ const styles = StyleSheet.create({
   badge: {
     position: 'absolute',
     top: -6,
-    right: -8,
+    right: -10,
     backgroundColor: '#EF4444',
     borderRadius: 10,
     minWidth: 18,
@@ -244,7 +256,7 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '700',
     lineHeight: 16,
-    textAlign: 'left',
+    textAlign: 'center',
     includeFontPadding: false,
   },
 });

@@ -345,7 +345,7 @@ export function CategoryCardList({
 }: CategoryCardListProps) {
   const router = useRouter();
   const { t, isRTL } = useLanguage();
-  const { datePickerStyle } = useDatePickerStyle();
+  const { datePickerStyle, loading: datePickerStyleLoading } = useDatePickerStyle();
   const { isViewer } = useActiveOwner();
   const theme = useTheme();
   
@@ -786,22 +786,24 @@ export function CategoryCardList({
                   </View>
                   <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
                     <View style={[styles.datePickerContainer, { backgroundColor: theme.colors.surfaceVariant }]}>
-                      <DateTimePicker
-                        value={selectedDate < minDate ? minDate : selectedDate}
-                        mode="date"
-                        display={
-                          datePickerStyle === 'calendar' 
-                            ? (Platform.OS === 'ios' ? 'inline' : 'default')
-                            : (Platform.OS === 'ios' ? 'spinner' : 'default')
-                        }
-                        minimumDate={minDate}
-                        onChange={handleDateChange}
-                        style={styles.datePicker}
-                        textColor={theme.colors.onSurface}
-                        accentColor={datePickerStyle === 'calendar' ? THEME_COLORS.primary : "white"}
-                        themeVariant="light"
-                        locale="he_IL"
-                      />
+                      {!datePickerStyleLoading && (
+                        <DateTimePicker
+                          value={selectedDate < minDate ? minDate : selectedDate}
+                          mode="date"
+                          display={
+                            datePickerStyle === 'calendar' 
+                              ? (Platform.OS === 'ios' ? 'inline' : 'default')
+                              : (Platform.OS === 'ios' ? 'spinner' : 'default')
+                          }
+                          minimumDate={minDate}
+                          onChange={handleDateChange}
+                          style={styles.datePicker}
+                          textColor={theme.colors.onSurface}
+                          accentColor={datePickerStyle === 'calendar' ? THEME_COLORS.primary : "white"}
+                          themeVariant="light"
+                          locale="he_IL"
+                        />
+                      )}
                     </View>
                   </View>
                   <View style={[styles.modalFooter, { borderTopColor: theme.colors.surfaceVariant }]}>
@@ -842,8 +844,8 @@ const createStyles = (isRTL: boolean) => StyleSheet.create({
   listContent: {
     paddingHorizontal: 16,
     paddingTop: 8,
-    paddingBottom: 32,
-    gap: 24, // More vertical spacing between category sections
+    paddingBottom: 20,
+    gap: 8, // Tighter vertical spacing between category sections
   },
   center: {
     flex: 1,

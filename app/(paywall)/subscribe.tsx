@@ -11,6 +11,7 @@ import { mockDevUpgradeToPro } from '@/lib/subscription/mockDevUpgrade';
 import { isDevEnv } from '@/lib/utils/devEnv';
 import { logSubscription } from '@/lib/logging/subscriptionLogger';
 import { useProfile } from '@/lib/hooks/useProfile';
+import { useIAP } from '@/lib/hooks/useIAP';
 import { getRtlContainerStyles, getRtlTextStyles } from '@/lib/utils/rtlStyles';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -47,6 +48,19 @@ export default function SubscribeScreen() {
   const [snack, setSnack] = useState<string | null>(null);
   const [currentSubscription, setCurrentSubscription] = useState<SubscriptionStatus | null>(null);
   const [highlightedPlan, setHighlightedPlan] = useState<SubscriptionTier | undefined>(preselectedPlan);
+  
+  // Get localized pricing from App Store / Play Store
+  const { 
+    proPriceString, 
+    purchasePro: iapPurchasePro, 
+    restore: iapRestore,
+    isReady: isIAPReady,
+    isLoading: isIAPLoading,
+    isPurchasing,
+    isRestoring: isIAPRestoring,
+    error: iapError,
+    retry: retryIAP,
+  } = useIAP();
   
   // Crown animation
   const crownScale = useSharedValue(1);
@@ -159,13 +173,54 @@ export default function SubscribeScreen() {
     }
 
     // --- PRODUCTION / REAL FLOW ---
-    // Note: IAP functionality has been removed. Use Stripe billing instead.
-    setSnack(t('subscription.subscribe.purchaseError'));
+    // Use App Store / Play Store IAP
+    try {
+      setIapProcessing(true);
+      
+      const result = await iapPurchasePro();
+      
+      if (result.success) {
+        // Purchase was initiated - the purchase listener will handle completion
+        logSubscription('[Paywall] IAP purchase initiated');
+      } else if (result.error === 'user_cancelled') {
+        // User cancelled - no error message needed
+        logSubscription('[Paywall] User cancelled purchase');
+      } else {
+        setSnack(t('subscription.subscribe.purchaseError'));
+        logSubscription('[Paywall] IAP purchase failed:', result.error);
+      }
+    } catch (error: any) {
+      console.error('[Paywall] IAP purchase error:', error);
+      setSnack(t('subscription.subscribe.purchaseError'));
+    } finally {
+      setIapProcessing(false);
+    }
   };
 
   const handleRestore = async () => {
-    // Note: IAP restore functionality has been removed. Use Stripe billing instead.
-    setSnack(t('subscription.subscribe.restoreError'));
+    try {
+      setRestoring(true);
+      
+      const result = await iapRestore();
+      
+      if (result.success) {
+        if (result.restored) {
+          // Refresh subscription status
+          await refetchProfile();
+          await loadCurrentSubscription();
+          setSnack(t('subscription.subscribe.restoreSuccess'));
+        } else {
+          setSnack(t('subscription.subscribe.noPurchasesToRestore'));
+        }
+      } else {
+        setSnack(t('subscription.subscribe.restoreError'));
+      }
+    } catch (error: any) {
+      console.error('[Paywall] Restore error:', error);
+      setSnack(t('subscription.subscribe.restoreError'));
+    } finally {
+      setRestoring(false);
+    }
   };
 
   const getCurrentTier = (): SubscriptionTier => {
@@ -282,12 +337,44 @@ export default function SubscribeScreen() {
               </Text>
 
               <View style={styles.priceContainer}>
-                <Text variant="headlineSmall" style={[styles.priceAmount, styles.proPrice, rtlText]}>
-                  {SUBSCRIPTION_PLANS.pro.priceMonthly}
-                </Text>
-                <Text variant="bodySmall" style={[styles.priceUnit, rtlText]}>
-                  {t('subscription.subscribe.pricePerMonth')}
-                </Text>
+                {/* Price loading state */}
+                {isIAPLoading && !proPriceString && (
+                  <View style={styles.priceLoadingContainer}>
+                    <ActivityIndicator size="small" color="#FF6B35" />
+                    <Text variant="bodySmall" style={[styles.priceLoadingText, rtlText]}>
+                      {t('subscription.subscribe.loadingPrice')}
+                    </Text>
+                  </View>
+                )}
+                
+                {/* Price error state */}
+                {iapError && !proPriceString && !isIAPLoading && (
+                  <View style={styles.priceErrorContainer}>
+                    <Text variant="bodySmall" style={[styles.priceErrorText, rtlText]}>
+                      {t('subscription.subscribe.priceLoadError')}
+                    </Text>
+                    <Button 
+                      mode="text" 
+                      onPress={retryIAP}
+                      compact
+                      labelStyle={styles.retryButtonLabel}
+                    >
+                      {t('subscription.subscribe.retryLoadPrice')}
+                    </Button>
+                  </View>
+                )}
+                
+                {/* Price loaded successfully */}
+                {(proPriceString || (!isIAPLoading && !iapError)) && (
+                  <>
+                    <Text variant="headlineSmall" style={[styles.priceAmount, styles.proPrice, rtlText]}>
+                      {proPriceString || `₪${SUBSCRIPTION_PLANS.pro.priceMonthly}`}
+                    </Text>
+                    <Text variant="bodySmall" style={[styles.priceUnit, rtlText]}>
+                      {t('subscription.subscribe.pricePerMonth')}
+                    </Text>
+                  </>
+                )}
               </View>
               <Divider style={styles.divider} />
 
@@ -328,8 +415,8 @@ export default function SubscribeScreen() {
                   <Button
                     mode="contained"
                     onPress={handlePurchasePro}
-                    loading={iapProcessing}
-                    disabled={iapProcessing || restoring}
+                    loading={iapProcessing || isPurchasing}
+                    disabled={iapProcessing || isPurchasing || restoring || isIAPRestoring}
                     style={[styles.upgradeButton, styles.proButton]}
                     contentStyle={styles.upgradeButtonContent}
                     labelStyle={styles.upgradeButtonLabel}
@@ -372,8 +459,8 @@ export default function SubscribeScreen() {
           <Button
             mode="text"
             onPress={handleRestore}
-            loading={restoring}
-            disabled={restoring || iapProcessing}
+            loading={restoring || isIAPRestoring}
+            disabled={restoring || isIAPRestoring || iapProcessing || isPurchasing}
             style={styles.restoreButton}
           >
             {t('subscription.subscribe.restore')}
@@ -640,6 +727,31 @@ function createStyles(isRTL: boolean) {
     fontSize: 14,
     fontWeight: '500',
     lineHeight: 18,
+  },
+  priceLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 8,
+  },
+  priceLoadingText: {
+    color: '#757575',
+    fontSize: 14,
+  },
+  priceErrorContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 4,
+  },
+  priceErrorText: {
+    color: '#EF5350',
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  retryButtonLabel: {
+    fontSize: 13,
+    color: '#FF6B35',
   },
   priceComparison: {
     textAlign: 'center',

@@ -184,23 +184,6 @@ export default function LoginScreen() {
     };
   }, []);
 
-  // Navigate to main app when user becomes authenticated (backup for Google/Apple login)
-  // This is a fallback in case explicit navigation in handleGoogleSignIn doesn't work
-  useEffect(() => {
-    // Only navigate if:
-    // 1. We have a user from AuthContext
-    // 2. Auth status is authenticated
-    // 3. We're not already navigating
-    // 4. We're not in the middle of a regular email/password login
-    // 5. We're not currently loading (Google/Apple login in progress)
-    if (authUser && authStatus === 'authenticated' && !isNavigatingRef.current && !loading && !googleLoading && !appleLoading) {
-      isNavigatingRef.current = true;
-      setTimeout(() => {
-        router.replace('/' as any);
-      }, 100);
-    }
-  }, [authUser, authStatus, loading, googleLoading, appleLoading, router]);
-
   const handlePressIn = () => {
     Animated.spring(scaleAnim, {
       toValue: 0.96,
@@ -257,9 +240,7 @@ export default function LoginScreen() {
 
     setShowForgot(false);
     setLoading(false);
-    setTimeout(() => {
-      router.replace('/' as any);
-    }, 100);
+    // Navigation is handled automatically by index.tsx when auth status changes to 'authenticated'
   };
 
   /**
@@ -290,9 +271,7 @@ export default function LoginScreen() {
       }
 
       setGoogleError(null);
-      // Navigation will be handled by index.tsx based on needsProfileCompletion
-      await new Promise(resolve => setTimeout(resolve, 300));
-      router.replace('/' as any);
+      // Navigation is handled automatically by index.tsx when auth status changes to 'authenticated'
     } catch (err: any) {
       console.error('[Login] Google sign-in failed:', err);
       setGoogleError(t('auth.googleSignInFailed') || 'הייתה תקלה בהתחברות עם Google.');
@@ -329,9 +308,7 @@ export default function LoginScreen() {
       }
 
       setAppleError(null);
-      // Navigation will be handled by index.tsx based on needsProfileCompletion
-      await new Promise(resolve => setTimeout(resolve, 300));
-      router.replace('/' as any);
+      // Navigation is handled automatically by index.tsx when auth status changes to 'authenticated'
     } catch (err: any) {
       console.error('[Login] Apple sign-in failed:', err);
       setAppleError(t('auth.appleSignInFailed') || 'הייתה תקלה בהתחברות עם Apple.');

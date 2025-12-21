@@ -11,9 +11,169 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[];
 
+// Barcode name source types
+export type BarcodeSource = 'stub' | 'api' | 'user' | 'mixed';
+
+// Expiry event types for Level B savings tracking
+export type ExpiryEventType = 
+  | 'SOLD_FINISHED' 
+  | 'THROWN' 
+  | 'UPDATED_DATE' 
+  | 'EXPIRED_AUTO_ARCHIVED';
+
+export type ExpiryEventSource = 'user' | 'system';
+
 export interface Database {
   public: {
     Tables: {
+      // ============================================================================
+      // BARCODE CATALOG SYSTEM (A1)
+      // ============================================================================
+      barcode_catalog: {
+        Row: {
+          barcode: string;
+          name: string;
+          locale: string | null;
+          source: BarcodeSource;
+          confidence_score: number | null;
+          updated_at: string;
+        };
+        Insert: {
+          barcode: string;
+          name: string;
+          locale?: string | null;
+          source?: BarcodeSource;
+          confidence_score?: number | null;
+          updated_at?: string;
+        };
+        Update: {
+          barcode?: string;
+          name?: string;
+          locale?: string | null;
+          source?: BarcodeSource;
+          confidence_score?: number | null;
+          updated_at?: string;
+        };
+      };
+      barcode_name_suggestions: {
+        Row: {
+          id: string;
+          barcode: string;
+          suggested_name: string;
+          locale: string | null;
+          store_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          barcode: string;
+          suggested_name: string;
+          locale?: string | null;
+          store_id?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          barcode?: string;
+          suggested_name?: string;
+          locale?: string | null;
+          store_id?: string | null;
+          created_at?: string;
+        };
+      };
+      store_barcode_overrides: {
+        Row: {
+          store_id: string;
+          barcode: string;
+          custom_name: string;
+          updated_at: string;
+        };
+        Insert: {
+          store_id: string;
+          barcode: string;
+          custom_name: string;
+          updated_at?: string;
+        };
+        Update: {
+          store_id?: string;
+          barcode?: string;
+          custom_name?: string;
+          updated_at?: string;
+        };
+      };
+      // ============================================================================
+      // SUPPLIER INTAKE (A2)
+      // ============================================================================
+      pending_items: {
+        Row: {
+          id: string;
+          store_id: string;
+          barcode: string | null;
+          raw_name: string | null;
+          quantity: number | null;
+          created_at: string;
+          resolved_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          store_id: string;
+          barcode?: string | null;
+          raw_name?: string | null;
+          quantity?: number | null;
+          created_at?: string;
+          resolved_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          store_id?: string;
+          barcode?: string | null;
+          raw_name?: string | null;
+          quantity?: number | null;
+          created_at?: string;
+          resolved_at?: string | null;
+        };
+      };
+      // ============================================================================
+      // EXPIRY EVENTS / HISTORY (A3)
+      // ============================================================================
+      expiry_events: {
+        Row: {
+          id: string;
+          store_id: string;
+          batch_id: string | null;
+          barcode: string | null;
+          product_name: string | null;
+          event_type: ExpiryEventType;
+          event_source: ExpiryEventSource;
+          metadata: Json | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          store_id: string;
+          batch_id?: string | null;
+          barcode?: string | null;
+          product_name?: string | null;
+          event_type: ExpiryEventType;
+          event_source?: ExpiryEventSource;
+          metadata?: Json | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          store_id?: string;
+          batch_id?: string | null;
+          barcode?: string | null;
+          product_name?: string | null;
+          event_type?: ExpiryEventType;
+          event_source?: ExpiryEventSource;
+          metadata?: Json | null;
+          created_at?: string;
+        };
+      };
+      // ============================================================================
+      // EXISTING TABLES
+      // ============================================================================
       businesses: {
         Row: {
           id: string;

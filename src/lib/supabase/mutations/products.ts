@@ -1,3 +1,10 @@
+/**
+ * Products mutations for Supabase
+ * 
+ * Note: The `products` table uses `owner_id` (not `store_id`).
+ * See src/lib/supabase/ownerUtils.ts for naming convention documentation.
+ */
+
 import { supabase } from '../client';
 
 export async function createProduct(params: { ownerId: string; name: string; barcode?: string | null; category?: string | null }) {
