@@ -48,6 +48,7 @@
       "expo-mail-composer",
       "expo-localization",
       "expo-secure-store",
+      "expo-in-app-purchases",
       [
         "expo-camera",
         {
