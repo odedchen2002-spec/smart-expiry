@@ -2,7 +2,7 @@
   "expo": {
     "name": "Smart Expiry",
     "slug": "expiryx-clean",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/logo.png",
     "scheme": "expiryxclean",
@@ -16,6 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.oded.expiryxclean",
+      "buildNumber": "2",
       "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
@@ -23,21 +24,25 @@
         "LSApplicationQueriesSchemes": [
           "googlegmail"
         ]
-      }
+      },
+      "icon": "./assets/images/logo.png"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/images/logo.png",
+        "backgroundColor": "#5B9FED"
       },
+      "icon": "./assets/images/logo.png",
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.oded.expiryxclean",
-      "versionCode": 2
+      "versionCode": 4
     },
     "notification": {
       "icon": "./assets/images/logo.png",
-      "color": "#000000"
+      "color": "#5B9FED",
+      "androidCollapsedTitle": "Smart Expiry",
+      "iosDisplayInForeground": true
     },
     "web": {
       "bundler": "metro",
@@ -65,7 +70,7 @@
         "expo-notifications",
         {
           "icon": "./assets/images/logo.png",
-          "color": "#000000",
+          "color": "#5B9FED",
           "sounds": []
         }
       ]
