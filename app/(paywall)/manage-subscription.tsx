@@ -98,7 +98,7 @@ export default function ManageSubscriptionScreen() {
 
   const currentTier = subscription?.subscription_tier || 'free';
   const isFree = currentTier === 'free';
-  const isPaid = currentTier === 'basic' || currentTier === 'pro';
+  const isPaid = currentTier === 'basic' || currentTier === 'pro' || currentTier === 'pro_plus';
 
   return (
     <SafeAreaView style={styles.safeArea} edges={[]}>

@@ -60,7 +60,7 @@ export async function getNotificationHistoryPaginated(
   // Build query
   let query = supabase
     .from('notification_sent_log')
-    .select('id,user_id,owner_id,created_at,status,expo_push_ticket')
+    .select('id,user_id,owner_id,created_at,status,expo_push_ticket,target_expiry_date')
     .eq('user_id', userId)
     .eq('owner_id', ownerId)
     .gte('created_at', thirtyDaysAgoISO)
@@ -96,6 +96,14 @@ export async function getNotificationHistoryPaginated(
     const ticket = row.expo_push_ticket || {};
     // Extract notification type from data, fallback to 'expiry_reminder' for backward compatibility
     const notificationType = ticket.data?.type || 'expiry_reminder';
+    
+    // Build data object, ensuring targetDate is available
+    // Priority: ticket.data.targetDate > row.target_expiry_date
+    const notificationData = {
+      ...(ticket.data || {}),
+      targetDate: ticket.data?.targetDate || row.target_expiry_date || null,
+    };
+    
     return {
       id: row.id,
       user_id: row.user_id,
@@ -104,7 +112,7 @@ export async function getNotificationHistoryPaginated(
       title: ticket.title ?? 'תזכורת תפוגה',
       body: ticket.body ?? '',
       notification_type: notificationType,
-      data: ticket.data ?? null,
+      data: notificationData,
       // All notifications start as unread; read state is managed locally via tappedIds and lastTappedAt
       read: false,
       created_at: row.created_at,

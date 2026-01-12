@@ -39,6 +39,11 @@ export const IAP_PRODUCT_IDS = {
     android: 'com.expiryx.pro.monthly',
     default: 'com.expiryx.pro.monthly',
   }) as string,
+  PRO_PLUS_MONTHLY: Platform.select({
+    ios: 'com.expiryx.proplus.monthly',
+    android: 'com.expiryx.proplus.monthly',
+    default: 'com.expiryx.proplus.monthly',
+  }) as string,
 };
 
 // All product IDs as array for fetching
@@ -104,6 +109,30 @@ const listeners: Set<StateListener> = new Set();
 
 function notifyListeners() {
   listeners.forEach(listener => listener({ ...iapState }));
+}
+
+// Listeners for successful purchases (to trigger profile refresh)
+type PurchaseSuccessListener = () => void;
+const purchaseSuccessListeners: Set<PurchaseSuccessListener> = new Set();
+
+/**
+ * Subscribe to successful purchase events
+ * Use this to refresh profile/subscription after IAP completes
+ */
+export function onPurchaseSuccess(listener: PurchaseSuccessListener): () => void {
+  purchaseSuccessListeners.add(listener);
+  return () => purchaseSuccessListeners.delete(listener);
+}
+
+function notifyPurchaseSuccess() {
+  logSubscription('[IAP] Notifying purchase success listeners, count:', purchaseSuccessListeners.size);
+  purchaseSuccessListeners.forEach(listener => {
+    try {
+      listener();
+    } catch (err) {
+      console.error('[IAP] Error in purchase success listener:', err);
+    }
+  });
 }
 
 /**
@@ -263,11 +292,27 @@ export function getProMonthlyProduct(): LocalizedProduct | null {
 }
 
 /**
+ * Get Pro+ monthly subscription with localized pricing
+ */
+export function getProPlusMonthlyProduct(): LocalizedProduct | null {
+  return getProduct(IAP_PRODUCT_IDS.PRO_PLUS_MONTHLY);
+}
+
+/**
  * Get the localized price string for Pro subscription
  * Returns formatted string like "₪29.00" or "$9.99"
  */
 export function getProPriceString(): string | null {
   const product = getProMonthlyProduct();
+  return product?.priceString || null;
+}
+
+/**
+ * Get the localized price string for Pro+ subscription
+ * Returns formatted string like "₪59.00" or "$19.99"
+ */
+export function getProPlusPriceString(): string | null {
+  const product = getProPlusMonthlyProduct();
   return product?.priceString || null;
 }
 
@@ -336,6 +381,10 @@ async function validateAndProcessPurchase(
     }
 
     logSubscription('[IAP] Receipt validated successfully:', data);
+    
+    // Notify listeners that purchase was successful (triggers profile refresh)
+    notifyPurchaseSuccess();
+    
     return true;
   } catch (error) {
     logSubscription('[IAP] Error validating purchase:', error);
@@ -344,14 +393,14 @@ async function validateAndProcessPurchase(
 }
 
 /**
- * Purchase Pro subscription
+ * Purchase a subscription by product ID
  */
-export async function purchaseProSubscription(): Promise<{
+async function purchaseSubscription(productId: string): Promise<{
   success: boolean;
   error?: string;
 }> {
   logSubscription('[IAP:purchase] Starting purchase flow...', {
-    productId: IAP_PRODUCT_IDS.PRO_MONTHLY,
+    productId,
     isConnected: iapState.isConnected,
     nativeModuleAvailable: isIAPModuleAvailable,
   });
@@ -374,7 +423,7 @@ export async function purchaseProSubscription(): Promise<{
   try {
     logSubscription('[IAP:purchase] Showing purchase dialog...');
     
-    await InAppPurchases.purchaseItemAsync(IAP_PRODUCT_IDS.PRO_MONTHLY);
+    await InAppPurchases.purchaseItemAsync(productId);
     
     // Purchase flow is handled by the purchase listener
     // This resolves when the purchase sheet is shown
@@ -394,6 +443,26 @@ export async function purchaseProSubscription(): Promise<{
     
     return { success: false, error: error.message || 'purchase_failed' };
   }
+}
+
+/**
+ * Purchase Pro subscription
+ */
+export async function purchaseProSubscription(): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  return purchaseSubscription(IAP_PRODUCT_IDS.PRO_MONTHLY);
+}
+
+/**
+ * Purchase Pro+ subscription
+ */
+export async function purchaseProPlusSubscription(): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  return purchaseSubscription(IAP_PRODUCT_IDS.PRO_PLUS_MONTHLY);
 }
 
 /**

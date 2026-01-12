@@ -9,12 +9,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { setLocale, t } from '@/i18n';
 import { applyLayoutDirection } from '@/i18n/rtl';
 import type { Locale } from '@/i18n/types';
+import { savePreferredLanguage } from '@/lib/supabase/queries/userPreferences';
+import { supabase } from '@/lib/supabase/client';
 
 // This key must match LANGUAGE_KEY in index.js (app entry point)
 const LANGUAGE_KEY = 'app_language';
 
 interface LanguageContextType {
   locale: Locale;
+  /** Alias for `locale` - for backward compatibility */
+  currentLocale: Locale;
   isRTL: boolean;
   setLanguage: (nextLocale: Locale) => void;
   t: (key: string, params?: Record<string, any>) => string;
@@ -29,6 +33,20 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [languageReady, setLanguageReady] = useState(false);
   const [hasLanguageChoice, setHasLanguageChoice] = useState(false);
   const isRTL = locale === 'he';
+
+  // Sync language to Supabase for push notifications
+  async function syncLanguageToSupabase(language: Locale) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await savePreferredLanguage(user.id, language);
+        console.log('[LanguageContext] Synced language to Supabase:', language);
+      }
+    } catch (error) {
+      // Silent fail - not critical
+      console.warn('[LanguageContext] Failed to sync language to Supabase:', error);
+    }
+  }
 
   function applyLanguage(nextLocale: Locale, showReloadHint: boolean) {
     setLocaleState(nextLocale);
@@ -46,6 +64,9 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem(LANGUAGE_KEY, nextLocale).catch((error) => {
       console.error('Error saving language to storage:', error);
     });
+
+    // Sync to Supabase (async, fire-and-forget)
+    syncLanguageToSupabase(nextLocale);
 
     if (showReloadHint) {
       // Show alert that app will restart
@@ -137,6 +158,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
 
   const value: LanguageContextType = {
     locale,
+    currentLocale: locale, // Alias for backward compatibility
     isRTL,
     setLanguage,
     t,

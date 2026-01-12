@@ -1,10 +1,16 @@
 /**
  * Check Expiring Items Edge Function
  *
- * This function runs via Supabase cron every minute to check for expiring items
+ * This function runs via Supabase cron every 15 minutes to check for expiring items
  * and send Expo push notifications to users based on their notification settings.
  *
- * CRON: * * * * *  → calls this function every minute
+ * WATERMARK MODEL:
+ * - Reads last_successful_run_at from cron_job_state at start
+ * - Sends notifications for users whose target time falls within [watermark, now]
+ * - Updates watermark only on successful completion (no partial updates)
+ * - This ensures no notifications are missed even if cron jobs are delayed/skipped
+ *
+ * CRON SCHEDULE: Every 15 minutes (0,15,30,45 of each hour)
  */
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
@@ -13,6 +19,132 @@ import { DateTime } from 'https://esm.sh/luxon@3.4.4';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const EXPO_ACCESS_TOKEN = Deno.env.get('EXPO_ACCESS_TOKEN') ?? '';
+const JOB_NAME = 'check-expiring-items';
+const LOCK_TIMEOUT_MINUTES = 5; // Auto-release stale locks after 5 minutes
+
+/**
+ * Get the watermark (last successful run time) for this job
+ */
+async function getWatermark(supabase: SupabaseClient): Promise<DateTime> {
+  const { data, error } = await supabase
+    .from('cron_job_state')
+    .select('last_successful_run_at')
+    .eq('job_name', JOB_NAME)
+    .single();
+
+  if (error || !data) {
+    // If no watermark exists, default to 15 minutes ago (safe fallback)
+    console.warn('[check-expiring-items] No watermark found, using 15 min ago as default');
+    return DateTime.utc().minus({ minutes: 15 });
+  }
+
+  return DateTime.fromISO(data.last_successful_run_at, { zone: 'utc' });
+}
+
+/**
+ * Update the watermark to current time (only call on successful completion)
+ */
+async function updateWatermark(supabase: SupabaseClient, newTime: DateTime): Promise<boolean> {
+  const { error } = await supabase
+    .from('cron_job_state')
+    .upsert({
+      job_name: JOB_NAME,
+      last_successful_run_at: newTime.toISO(),
+      updated_at: newTime.toISO(),
+    }, {
+      onConflict: 'job_name',
+    });
+
+  if (error) {
+    console.error('[check-expiring-items] Failed to update watermark:', error.message);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Try to acquire an exclusive lock for this job.
+ * Returns runId if lock acquired, null if another run is active.
+ * Lock auto-expires after LOCK_TIMEOUT_MINUTES (fail-safe for crashes).
+ */
+async function tryAcquireLock(supabase: SupabaseClient): Promise<string | null> {
+  const runId = crypto.randomUUID();
+
+  // Use RPC function to acquire lock (bypasses PostgREST schema cache)
+  const { data, error } = await supabase.rpc('try_acquire_cron_lock', {
+    p_job_name: JOB_NAME,
+    p_run_id: runId,
+    p_lock_timeout_minutes: LOCK_TIMEOUT_MINUTES,
+  });
+
+  if (error) {
+    console.error('[check-expiring-items] Error acquiring lock:', error.message);
+    return null;
+  }
+
+  if (!data) {
+    // Lock is held by another active run
+    return null;
+  }
+
+  return runId;
+}
+
+/**
+ * Release the lock (only if we still hold it).
+ * Safe to call even if lock was already released or taken by another run.
+ */
+async function releaseLock(supabase: SupabaseClient, runId: string): Promise<void> {
+  // Use RPC function to release lock (bypasses PostgREST schema cache)
+  const { error } = await supabase.rpc('release_cron_lock', {
+    p_job_name: JOB_NAME,
+    p_run_id: runId,
+  });
+
+  if (error) {
+    console.warn('[check-expiring-items] Failed to release lock:', error.message);
+  }
+}
+
+/**
+ * Check if a user's target notification time (HH:MM in their timezone) 
+ * falls within the watermark window [watermarkUtc, nowUtc].
+ * 
+ * This handles the case where the target time "occurred" between the last run and now.
+ */
+function isTargetTimeInWatermarkWindow(
+  timezone: string,
+  targetHour: number,
+  targetMinute: number,
+  watermarkUtc: DateTime,
+  nowUtc: DateTime
+): boolean {
+  if (targetHour === null || targetMinute === null) return false;
+  if (isNaN(targetHour) || isNaN(targetMinute)) return false;
+
+  // Convert watermark and now to user's local timezone
+  const watermarkLocal = watermarkUtc.setZone(timezone);
+  const nowLocal = nowUtc.setZone(timezone);
+
+  // Get the target time as a DateTime in user's timezone for TODAY
+  const todayTarget = nowLocal.set({ hour: targetHour, minute: targetMinute, second: 0, millisecond: 0 });
+
+  // Also check yesterday's target (in case watermark spans midnight)
+  const yesterdayTarget = todayTarget.minus({ days: 1 });
+
+  // Check if today's target falls within [watermarkLocal, nowLocal]
+  if (todayTarget >= watermarkLocal && todayTarget <= nowLocal) {
+    return true;
+  }
+
+  // Check if yesterday's target falls within [watermarkLocal, nowLocal]
+  // This handles cases like: watermark=23:50, now=00:05, target=23:55
+  if (yesterdayTarget >= watermarkLocal && yesterdayTarget <= nowLocal) {
+    return true;
+  }
+
+  return false;
+}
 
 interface UserPreferences {
   user_id: string;
@@ -26,6 +158,7 @@ interface UserPreferences {
   expiry_notify_enabled: boolean | null; // Default true if not set
   expiry_last_notified_at: string | null;
   expiry_last_notified_settings_updated_at: string | null;
+  preferred_language: string | null; // 'he' or 'en', default 'he'
 }
 
 interface Item {
@@ -41,10 +174,43 @@ interface Item {
 /**
  * Helper function to generate when text based on days until expiry
  */
-function whenText(daysUntil: number): string {
+function whenText(daysUntil: number, language: string = 'he'): string {
+  if (language === 'en') {
+    if (daysUntil <= 0) return 'today';
+    if (daysUntil === 1) return 'tomorrow';
+    return `in ${daysUntil} days`;
+  }
+  // Hebrew (default)
   if (daysUntil <= 0) return 'היום';
   if (daysUntil === 1) return 'מחר';
   return `בעוד ${daysUntil} ימים`;
+}
+
+/**
+ * Build notification title and body based on language
+ */
+function buildNotificationMessage(
+  itemsCount: number,
+  productName: string | null,
+  daysUntil: number,
+  language: string = 'he'
+): { title: string; body: string } {
+  const whenTextValue = whenText(daysUntil, language);
+
+  if (language === 'en') {
+    const title = 'Expiry Alert ⚠️';
+    const body = itemsCount === 1
+      ? `${productName || 'Product'} expires ${whenTextValue}`
+      : `${itemsCount} products expire ${whenTextValue}`;
+    return { title, body };
+  }
+
+  // Hebrew (default)
+  const title = 'התראת תפוגה ⚠️';
+  const body = itemsCount === 1
+    ? `${productName || 'מוצר'} יפוג ${whenTextValue}`
+    : `ל-${itemsCount} מוצרים יפוג התוקף ${whenTextValue}`;
+  return { title, body };
 }
 
 /**
@@ -58,24 +224,12 @@ function getCurrentTimeInTimezone(timezone: string): { hour: number; minute: num
     minute: 'numeric',
     hour12: false,
   });
-  
+
   const parts = formatter.formatToParts(now);
   const hour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
   const minute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
-  
-  return { hour, minute };
-}
 
-/**
- * Check if current time exactly matches target hour and minute in user's timezone
- */
-function isExactTimeMatch(timezone: string, targetHour: number, targetMinute: number): boolean {
-  if (targetHour === null || targetMinute === null) return false;
-  if (isNaN(targetHour) || isNaN(targetMinute)) return false;
-  
-  const { hour: nowHour, minute: nowMinute } = getCurrentTimeInTimezone(timezone);
-  
-  return nowHour === targetHour && nowMinute === targetMinute;
+  return { hour, minute };
 }
 
 /**
@@ -161,10 +315,10 @@ async function sendPushNotifications(tokens: string[], title: string, body: stri
   }
 
   // Log only status + receipt IDs on success
-  const receiptIds = Array.isArray(json?.data) 
+  const receiptIds = Array.isArray(json?.data)
     ? json.data.map((r: any) => r.id).filter(Boolean)
     : [];
-  
+
   if (Array.isArray(json?.data)) {
     const errors = json.data.filter((r: any) => r.status !== 'ok');
     if (errors.length > 0) {
@@ -224,37 +378,66 @@ async function getExpiringItemsForOwner(
   }
   const nowUtc = DateTime.utc();
   const localNow = nowUtc.setZone(timezone);
-  const targetDay = localNow.plus({ days: daysBefore });
   
+  // CRITICAL: Use start of day to calculate target date
+  // This ensures consistent date calculation regardless of time of day
+  // If notification runs at 01:30, we still want "today" to mean the current calendar day
+  const todayStart = localNow.startOf('day');
+  const targetDay = todayStart.plus({ days: daysBefore });
+
   // Use local date directly since expiry_date is stored as a simple date (YYYY-MM-DD)
   // without timezone info. Converting to UTC can span two calendar days due to timezone offset.
   const targetDateStr = targetDay.toFormat('yyyy-MM-dd');
 
   // Fetch items - use exact date match since expiry_date is stored as YYYY-MM-DD
-  const { data: items, error } = await supabase
-    .from('items')
-    .select('id, owner_id, expiry_date, status, is_plan_locked, product_id')
-    .eq('owner_id', ownerId)
-    .eq('expiry_date', targetDateStr);
+  // CRITICAL: Fetch in chunks to handle >1000 items (Supabase limit)
+  const CHUNK_SIZE = 1000;
+  let allItems: any[] = [];
+  let offset = 0;
+  let hasMore = true;
 
-  if (error) {
-    console.error(`[check-expiring-items] ownerId=${ownerId}, stage=fetchItems, error:`, {
-      message: error.message,
-      code: error.code,
-    });
-    return [];
+  while (hasMore) {
+    const { data: chunk, error } = await supabase
+      .from('items')
+      .select('id, owner_id, expiry_date, status, is_plan_locked, product_id')
+      .eq('owner_id', ownerId)
+      .eq('expiry_date', targetDateStr)
+      .neq('status', 'resolved') // Exclude sold/thrown/finished items
+      .range(offset, offset + CHUNK_SIZE - 1);
+
+    if (error) {
+      console.error(`[check-expiring-items] ownerId=${ownerId}, stage=fetchItems, error:`, {
+        message: error.message,
+        code: error.code,
+      });
+      return [];
+    }
+
+    if (!chunk || chunk.length === 0) {
+      break;
+    }
+
+    allItems = allItems.concat(chunk);
+
+    if (chunk.length < CHUNK_SIZE) {
+      hasMore = false;
+    } else {
+      offset += CHUNK_SIZE;
+    }
   }
+
+  const items = allItems;
 
   // Fetch product names
   const productIds = [...new Set((items || []).map((item: any) => item.product_id).filter(Boolean))];
   let productsMap = new Map();
-  
+
   if (productIds.length > 0) {
     const { data: products } = await supabase
       .from('products')
       .select('id, name')
       .in('id', productIds);
-    
+
     if (products) {
       productsMap = new Map(products.map((p: any) => [p.id, p.name]));
     }
@@ -267,9 +450,8 @@ async function getExpiringItemsForOwner(
       product_name: item.product_id ? (productsMap.get(item.product_id) || null) : null,
     }))
     .filter((item: any) =>
-      item.status !== 'resolved' &&
-      item.status !== 'expired' &&
-      item.is_plan_locked !== true
+      item.status !== 'resolved' &&  // Already filtered in DB query, but keep for safety
+      item.is_plan_locked !== true    // Only show unlocked items (user can act on them)
     ) as Item[];
 
   return activeItems;
@@ -277,10 +459,13 @@ async function getExpiringItemsForOwner(
 
 /**
  * Process a single user for expiry notifications
+ * Uses watermark window to determine if notification should be sent
  */
 async function processUser(
   supabase: SupabaseClient,
   userPref: UserPreferences,
+  watermarkUtc: DateTime,
+  nowUtc: DateTime,
   forceSend: boolean,
   debug: boolean = false
 ): Promise<{ sent: boolean; itemsCount: number; error?: string }> {
@@ -298,36 +483,38 @@ async function processUser(
 
   // Step 3: Get user's timezone
   const timezone = userPref.timezone || 'Asia/Jerusalem';
-  
-  // Step 4: Get current hour/minute in user's timezone using Intl.DateTimeFormat
+
+  // Step 4: Get current hour/minute in user's timezone for logging
   const { hour: nowHour, minute: nowMinute } = getCurrentTimeInTimezone(timezone);
-  
-  // Step 5: Check exact time match
+
+  // Step 5: Check if target time falls within watermark window [watermarkUtc, nowUtc]
   const targetHour = userPref.notification_hour;
   const targetMinute = userPref.notification_minute;
-  const timeMatches = isExactTimeMatch(timezone, targetHour, targetMinute);
-  
+  const timeMatches = isTargetTimeInWatermarkWindow(timezone, targetHour, targetMinute, watermarkUtc, nowUtc);
+
   // Format current time for logging
   const nowLocal = `${nowHour.toString().padStart(2, '0')}:${nowMinute.toString().padStart(2, '0')}`;
-  
+  const watermarkLocal = watermarkUtc.setZone(timezone).toFormat('HH:mm');
+
   // Debug log per user ONLY when debug=true OR when timeMatches=false (for troubleshooting)
   if (debug || !timeMatches) {
     console.log(
       `[check-expiring-items] userId=${userId}, timezone=${timezone}, ` +
-      `nowLocal=${nowLocal}, targetHour=${targetHour}, targetMinute=${targetMinute}, timeMatches=${timeMatches}`
+      `watermarkLocal=${watermarkLocal}, nowLocal=${nowLocal}, ` +
+      `targetHour=${targetHour}, targetMinute=${targetMinute}, timeMatches=${timeMatches}`
     );
   }
-  
+
   if (!timeMatches && !forceSend) {
     return { sent: false, itemsCount: 0 };
   }
 
   // Step 6: Check if already sent today (using DateTime for date comparison)
-  const nowUtc = DateTime.utc();
+  // Use the nowUtc passed as parameter for consistency
   const localNow = nowUtc.setZone(timezone);
   const todayKey = localNow.toFormat('yyyy-LL-dd');
   let sentToday = false;
-  
+
   if (userPref.expiry_last_notified_at) {
     const lastLocal = DateTime.fromISO(userPref.expiry_last_notified_at).setZone(timezone);
     const lastKey = lastLocal.toFormat('yyyy-LL-dd');
@@ -360,22 +547,13 @@ async function processUser(
     return { sent: false, itemsCount: 0 };
   }
 
-  // Step 8: Get all owners for this user
-  const ownerIds = await getUserOwners(supabase, userId);
-  if (ownerIds.length === 0) {
-    return { sent: false, itemsCount: 0 };
-  }
-
-  // Step 9: Get expiring items from all owners
-  // Use notification_days_before from user_preferences
+  // Step 8: Get items ONLY for the user's own products (not collaborations)
+  // Users should only receive notifications for their own items, not for items
+  // they collaborate on (which belong to other owners)
   const daysBefore = userPref.notification_days_before ?? 1; // Default to 1 day before
-  
-  const allItems: Item[] = [];
-  
-  for (const ownerId of ownerIds) {
-    const items = await getExpiringItemsForOwner(supabase, ownerId, daysBefore, timezone);
-    allItems.push(...items);
-  }
+
+  // Step 9: Get expiring items only for this user (as owner)
+  const allItems = await getExpiringItemsForOwner(supabase, userId, daysBefore, timezone);
 
   if (allItems.length === 0) {
     return { sent: false, itemsCount: 0 };
@@ -393,18 +571,17 @@ async function processUser(
   const itemsInEarliestBucket = itemsWithDaysUntil.filter(item => item.daysUntil === minDaysUntil);
   const N = itemsInEarliestBucket.length;
 
-  // Build notification body
-  const whenTextValue = whenText(minDaysUntil);
-  let notificationBody: string;
-  
-  if (N === 1) {
-    const productName = itemsInEarliestBucket[0].product_name || 'מוצר';
-    notificationBody = `${productName} יפוג ${whenTextValue}`;
-  } else {
-    notificationBody = `ל-${N} מוצרים יפוג התוקף ${whenTextValue}`;
-  }
+  // Get user's preferred language (default to Hebrew)
+  const userLanguage = userPref.preferred_language || 'he';
 
-  const notificationTitle = 'התראת תפוגה ⚠️';
+  // Build notification message in user's language
+  const productName = N === 1 ? itemsInEarliestBucket[0].product_name : null;
+  const { title: notificationTitle, body: notificationBody } = buildNotificationMessage(
+    N,
+    productName,
+    minDaysUntil,
+    userLanguage
+  );
 
   // Step 11: Get tokens from user_preferences and send
   const userTokens = getPushTokensFromPreferences(userPref);
@@ -438,10 +615,10 @@ async function processUser(
     // Step 13: Log to notification_sent_log
     const sentDate = nowUtc.toFormat('yyyy-MM-dd');
     const notificationTime = nowUtc.toFormat('HH:mm:ss');
-    
-    // Use first owner for logging (or aggregate)
-    const primaryOwnerId = ownerIds[0];
-    
+
+    // Use user's own ID as owner_id (notifications are only for user's own items)
+    const primaryOwnerId = userId;
+
     const expoPushTicket = pushResult.message || {
       title: notificationTitle,
       body: notificationBody,
@@ -483,7 +660,7 @@ serve(async (_req) => {
   let forceSend = false;
   let isCron = false;
   let debug = false;
-  
+
   // Check for cron header
   const cronHeader = _req.headers.get('x-cron');
   if (cronHeader) {
@@ -508,35 +685,68 @@ serve(async (_req) => {
     // Silent fail on body parse
   }
 
-  try {
-    // Create admin Supabase client with service role key
-    const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  // Create admin Supabase client with service role key
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
-    if (!supabaseUrl || !supabaseServiceKey) {
-      console.error('[check-expiring-items] Missing environment variables:', {
-        hasUrl: !!supabaseUrl,
-        hasServiceKey: !!supabaseServiceKey,
-      });
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          invokedAt,
-          forceSend,
-          error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY',
-        }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-      global: { headers: { 'X-Client-Info': 'check-expiring-items' } },
+  if (!supabaseUrl || !supabaseServiceKey) {
+    console.error('[check-expiring-items] Missing environment variables:', {
+      hasUrl: !!supabaseUrl,
+      hasServiceKey: !!supabaseServiceKey,
     });
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        invokedAt,
+        forceSend,
+        error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY',
+      }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { 'X-Client-Info': 'check-expiring-items' } },
+  });
+
+  // ========== STEP 1: Try to acquire exclusive lock ==========
+  const runId = await tryAcquireLock(supabase);
+
+  if (!runId) {
+    // Another run is active - skip gracefully
+    const durationMs = Date.now() - startTime;
+    console.log('[check-expiring-items] Skipped: another run is active (lock held)');
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        skippedDueToLock: true,
+        invokedAt,
+        isCron,
+        forceSend,
+        message: 'Skipped due to active lock - another run in progress',
+        durationMs,
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  console.log(`[check-expiring-items] Lock acquired: runId=${runId}`);
+
+  // ========== MAIN LOGIC (wrapped in try/finally to always release lock) ==========
+  try {
+    // Step 2: Get watermark (last successful run time)
+    const watermarkUtc = await getWatermark(supabase);
+    const nowUtc = DateTime.utc();
+
+    console.log(
+      `[check-expiring-items] Watermark window: ${watermarkUtc.toISO()} → ${nowUtc.toISO()} ` +
+      `(${Math.round(nowUtc.diff(watermarkUtc, 'minutes').minutes)} minutes)`
+    );
 
     // Get all users with notification settings from user_preferences
-    const selectCols = 'user_id, push_token, timezone, notification_time, notification_hour, notification_minute, notification_days_before, updated_at, expiry_notify_enabled, expiry_last_notified_at, expiry_last_notified_settings_updated_at';
-    
+    const selectCols = 'user_id, push_token, timezone, notification_time, notification_hour, notification_minute, notification_days_before, updated_at, expiry_notify_enabled, expiry_last_notified_at, expiry_last_notified_settings_updated_at, preferred_language';
+
     const { data: allUserPrefs, error: usersError } = await supabase
       .from('user_preferences')
       .select(selectCols);
@@ -549,21 +759,22 @@ serve(async (_req) => {
         code: (usersError as any).code,
         selectCols,
       };
-      
+
       console.error('[check-expiring-items] stage=fetchUsers, error:', {
         message: usersError.message,
         code: (usersError as any).code,
         details: (usersError as any).details,
       });
-      
+
       // Check if error is about missing columns
       const errorMsg = usersError.message || '';
       const isColumnError = errorMsg.includes('column') || errorMsg.includes('does not exist') || (usersError as any).code === '42703';
-      
+
       if (isColumnError) {
         return new Response(
           JSON.stringify({
             ok: false,
+            runId,
             step: 'fetch_users',
             error: 'Missing columns in user_preferences table',
             missingColumns: [
@@ -584,12 +795,13 @@ serve(async (_req) => {
           { status: 500, headers: { 'Content-Type': 'application/json' } }
         );
       }
-      
+
       return new Response(
         JSON.stringify({
           ok: false,
           invokedAt,
           forceSend,
+          runId,
           step: 'fetch_users',
           error: 'Failed to fetch users',
           errorDetails,
@@ -600,11 +812,11 @@ serve(async (_req) => {
 
     // Filter users: has push_token AND (has notification_time OR has notification_hour+minute) AND enabled
     const totalUsers = (allUserPrefs || []).length;
-    const users = (allUserPrefs || []).filter((p: any) => 
-      p.push_token && 
+    const users = (allUserPrefs || []).filter((p: any) =>
+      p.push_token &&
       p.push_token.trim() !== '' &&
-      ((p.notification_time && p.notification_time.trim() !== '') || 
-       (p.notification_hour !== null && p.notification_minute !== null)) &&
+      ((p.notification_time && p.notification_time.trim() !== '') ||
+        (p.notification_hour !== null && p.notification_minute !== null)) &&
       p.expiry_notify_enabled !== false // Default true
     ) as UserPreferences[];
 
@@ -612,11 +824,12 @@ serve(async (_req) => {
 
     if (eligibleUsers === 0) {
       return new Response(
-        JSON.stringify({ 
+        JSON.stringify({
           ok: true,
           invokedAt,
           isCron,
           forceSend,
+          runId,
           totalUsers,
           eligibleUsers: 0,
           sent: 0,
@@ -636,10 +849,10 @@ serve(async (_req) => {
       errors: [] as string[],
     };
 
-    // Process each user
+    // Process each user with watermark window
     for (const userPref of users as UserPreferences[]) {
       try {
-        const result = await processUser(supabase, userPref, forceSend, debug);
+        const result = await processUser(supabase, userPref, watermarkUtc, nowUtc, forceSend, debug);
         results.processed += 1;
         if (result.sent) {
           results.sent += 1;
@@ -660,10 +873,26 @@ serve(async (_req) => {
     // Always log summary line
     const durationMs = Date.now() - startTime;
     const errorsCount = results.errors.length;
+
+    // Update watermark only if run was successful (no fatal errors)
+    // We update even if some users had errors, as long as we processed everyone
+    let watermarkUpdated = false;
+    if (results.processed === eligibleUsers) {
+      watermarkUpdated = await updateWatermark(supabase, nowUtc);
+      if (watermarkUpdated) {
+        console.log(`[check-expiring-items] Watermark updated to ${nowUtc.toISO()}`);
+      }
+    } else {
+      console.warn(
+        `[check-expiring-items] Watermark NOT updated: processed=${results.processed}, expected=${eligibleUsers}`
+      );
+    }
+
     console.log(
-      `[check-expiring-items] summary: invokedAt=${invokedAt}, isCron=${isCron}, forceSend=${forceSend}, ` +
+      `[check-expiring-items] summary: runId=${runId}, invokedAt=${invokedAt}, isCron=${isCron}, forceSend=${forceSend}, ` +
       `totalUsers=${totalUsers}, eligibleUsers=${eligibleUsers}, sent=${results.sent}, ` +
-      `skipped=${results.skipped}, errorsCount=${errorsCount}, durationMs=${durationMs}`
+      `skipped=${results.skipped}, errorsCount=${errorsCount}, durationMs=${durationMs}, ` +
+      `watermarkUpdated=${watermarkUpdated}`
     );
 
     return new Response(
@@ -672,12 +901,19 @@ serve(async (_req) => {
         invokedAt,
         isCron,
         forceSend,
+        runId,
         totalUsers,
         eligibleUsers,
         sent: results.sent,
         skipped: results.skipped,
         errorsCount,
         durationMs,
+        watermarkUpdated,
+        watermarkWindow: {
+          from: watermarkUtc.toISO(),
+          to: nowUtc.toISO(),
+          minutes: Math.round(nowUtc.diff(watermarkUtc, 'minutes').minutes),
+        },
         errors: errorsCount > 0 ? results.errors : undefined,
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
@@ -685,18 +921,25 @@ serve(async (_req) => {
   } catch (err: any) {
     const durationMs = Date.now() - startTime;
     console.error('[check-expiring-items] stage=fatal, error:', {
+      runId,
       message: err?.message || 'Unknown error',
       durationMs,
     });
     return new Response(
-      JSON.stringify({ 
+      JSON.stringify({
         ok: false,
-        invokedAt: new Date().toISOString(),
-        forceSend: false,
-        error: 'Fatal error', 
-        details: err?.message 
+        invokedAt,
+        forceSend,
+        runId,
+        error: 'Fatal error',
+        details: err?.message,
+        durationMs,
       }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
+  } finally {
+    // ========== ALWAYS release lock (even on error/exception) ==========
+    await releaseLock(supabase, runId);
+    console.log(`[check-expiring-items] Lock released: runId=${runId}`);
   }
 });

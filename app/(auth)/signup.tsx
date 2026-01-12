@@ -60,8 +60,11 @@ export default function SignUpScreen() {
     setLoading(true);
     setError(null);
 
+    // Normalize email: trim whitespace and convert to lowercase
+    const normalizedEmail = email.trim().toLowerCase();
+
     const result = await signUp({
-      email,
+      email: normalizedEmail,
       password,
       username: username.trim(),
       hasAcceptedTerms: isTermsAccepted,
@@ -120,7 +123,7 @@ export default function SignUpScreen() {
           const persistResult = await persistProfileToSupabase({
             userId,
             profileName: username.trim(),
-            email: email.trim(),
+            email: normalizedEmail,
             hasAcceptedTerms: true,
             acceptedTermsAt: nowIso,
             termsHash: TERMS_HASH,
@@ -290,7 +293,7 @@ export default function SignUpScreen() {
               !password ||
               !username.trim() ||
               !isTermsAccepted ||
-              !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+              !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim().toLowerCase())
             }
             style={styles.button}
           >

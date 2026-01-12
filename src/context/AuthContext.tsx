@@ -6,12 +6,13 @@
 
 import { refreshAccessToken, storeSessionTokens } from '@/lib/auth/refreshToken';
 import type { SignInData, SignUpData } from '@/lib/supabase/auth';
-import { getSession, getCurrentUser, onAuthStateChange, signIn, signInWithApple, signInWithGoogle, signOut, signUp, syncAuthEmailToProfile } from '@/lib/supabase/auth';
+import { getSession, getCurrentUser, onAuthStateChange, signIn, signInWithApple, signInWithGoogle, signOut, signUp, syncAuthEmailToProfile, syncTermsOnSignUp } from '@/lib/supabase/auth';
 import type { Session, User } from '@supabase/supabase-js';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const RECOVERY_FLAG_KEY = 'password_recovery_active';
+const RECOVERY_FLAG_MAX_AGE_MS = 30000; // 30 seconds - flag is only valid for this duration
 
 export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated' | 'password_recovery';
 
@@ -145,6 +146,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (profileError) {
         console.error('[AuthContext] Error loading profile:', profileError);
+        
+        // CRITICAL: Distinguish between network errors and actual missing profile
+        // Network errors should NOT mark the user as needing profile completion
+        const isNetworkError = 
+          profileError.message?.toLowerCase().includes('network') ||
+          profileError.message?.toLowerCase().includes('connection') ||
+          profileError.message?.toLowerCase().includes('gateway') ||
+          profileError.code === 'PGRST301' || // Gateway timeout
+          profileError.code === 'ETIMEDOUT';
+        
+        if (isNetworkError) {
+          console.warn('[AuthContext] Network error loading profile - will retry later');
+          // Don't set profile as loaded, don't mark as needing completion
+          // Just set the session/user and continue - the app will retry when network returns
+          setUser(nextUser);
+          setSession(nextSession);
+          setStatus('authenticated');
+          setLoading(false);
+          lastUserIdRef.current = nextUserId;
+          return;
+        }
+        
+        // For non-network errors, continue with null profile (truly missing profile)
       }
 
       // Final check before setting state - ensure we haven't been signed out
@@ -205,16 +229,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // On app start: try to refresh token silently
     const initializeAuth = async () => {
       try {
+        console.log('[AuthContext] Initializing auth...');
         // Set status to loading while checking
         setStatus('loading');
         
         // First, try to get existing or refreshed session
         let { session: existingSession } = await getSession();
+        console.log('[AuthContext] Existing session found:', !!existingSession);
 
         // If no session at all, treat as signed out
         if (!existingSession) {
           await applyAuthState(null);
           return;
+        }
+
+        // Check if there's a stale recovery flag on init
+        try {
+          const recoveryFlagValue = await AsyncStorage.getItem(RECOVERY_FLAG_KEY);
+          if (recoveryFlagValue) {
+            const flagTimestamp = parseInt(recoveryFlagValue, 10);
+            const age = Date.now() - flagTimestamp;
+            console.log('[AuthContext] Init: Found recovery flag, age:', age, 'ms');
+            
+            if (age >= RECOVERY_FLAG_MAX_AGE_MS) {
+              console.log('[AuthContext] Init: Clearing stale recovery flags');
+              await AsyncStorage.removeItem(RECOVERY_FLAG_KEY);
+            }
+          } else {
+            console.log('[AuthContext] Init: No recovery flag found');
+          }
+        } catch (e) {
+          console.warn('[AuthContext] Init: Error checking recovery flag:', e);
         }
 
         // Double-check with the auth service that the user still exists.
@@ -251,6 +296,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Handle SIGNED_OUT or no session/user - clear everything and DO NOT run profile checks
       // Check both session existence AND session.user existence to be safe
       if (event === 'SIGNED_OUT' || !session || !session.user || !session.user.id) {
+        console.log('[AuthContext] 🚪 SIGNED_OUT event or no session, clearing auth state. Event:', event);
         // Mark as signed out to prevent any async profile loading from completing
         isSignedOutRef.current = true;
         setUser(null);
@@ -262,6 +308,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsRecoveryFlow(false);
         setStatus('unauthenticated');
         lastUserIdRef.current = null; // IMPORTANT: clear any cached user id
+        console.log('[AuthContext] ✅ Auth state cleared, status set to unauthenticated');
         // Clear recovery flag
         try {
           await AsyncStorage.removeItem(RECOVERY_FLAG_KEY);
@@ -280,20 +327,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Password recovery / reset flow detection
       // Check for PASSWORD_RECOVERY event or recovery flag in AsyncStorage
       let isRecoverySession = event === 'PASSWORD_RECOVERY';
+      console.log('[AuthContext] Auth event:', event, 'Initial isRecoverySession:', isRecoverySession);
       
       // Check AsyncStorage flag if SIGNED_IN event (since Supabase may fire SIGNED_IN instead of PASSWORD_RECOVERY)
+      // IMPORTANT: Only respect the flag if it was set recently (within RECOVERY_FLAG_MAX_AGE_MS).
+      // This prevents stale flags from previous sessions causing incorrect redirects.
       if (event === 'SIGNED_IN' && session) {
         try {
-          const recoveryFlag = await AsyncStorage.getItem(RECOVERY_FLAG_KEY);
-          if (recoveryFlag === 'true') {
-            isRecoverySession = true;
-            // Clear the flag after checking
-            await AsyncStorage.removeItem(RECOVERY_FLAG_KEY);
+          const recoveryFlagValue = await AsyncStorage.getItem(RECOVERY_FLAG_KEY);
+          console.log('[AuthContext] Recovery flag value:', recoveryFlagValue);
+          
+          if (recoveryFlagValue) {
+            // Flag format: timestamp in milliseconds, or 'true' for legacy
+            const flagTimestamp = parseInt(recoveryFlagValue, 10);
+            const now = Date.now();
+            const age = now - flagTimestamp;
+            
+            console.log('[AuthContext] Flag timestamp:', flagTimestamp, 'Age:', age, 'ms, Max age:', RECOVERY_FLAG_MAX_AGE_MS);
+            
+            if (!isNaN(flagTimestamp) && age < RECOVERY_FLAG_MAX_AGE_MS) {
+              // Flag is recent - this is a legitimate recovery flow
+              console.log('[AuthContext] Recent recovery flag detected, entering recovery mode');
+              isRecoverySession = true;
+            } else {
+              // Flag is stale (either too old or legacy format)
+              console.log('[AuthContext] Clearing stale recovery flag (age:', age, 'ms or legacy format)');
+            }
+            
+            // Always clear the flag after checking (don't clear if it's a legitimate recovery)
+            if (!isRecoverySession) {
+              console.log('[AuthContext] Clearing recovery flag (not a recovery session)');
+              await AsyncStorage.removeItem(RECOVERY_FLAG_KEY);
+            }
+          } else {
+            // No recovery flag at all - this is definitely a normal sign-in
+            console.log('[AuthContext] No recovery flag found');
           }
         } catch (error) {
           console.error('[AuthContext] Error checking recovery flag:', error);
         }
       }
+      
+      console.log('[AuthContext] Final isRecoverySession:', isRecoverySession);
 
       if (isRecoverySession) {
         // Set session and user for recovery flow
@@ -325,6 +400,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (result.error) {
       return { error: result.error, user: null };
     }
+    // Clear recovery flag on successful normal sign-in to ensure we're not in recovery mode
+    try {
+      await AsyncStorage.removeItem(RECOVERY_FLAG_KEY);
+    } catch (error) {
+      // Ignore errors
+    }
     return { error: null, user: result.user ?? null };
   };
 
@@ -332,6 +413,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const result = await signUp(data);
     if (result.error) {
       return { error: result.error };
+    }
+    // Clear recovery flag on successful sign-up
+    try {
+      await AsyncStorage.removeItem(RECOVERY_FLAG_KEY);
+    } catch (error) {
+      // Ignore errors
     }
     return { error: null };
   };
@@ -341,6 +428,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const result = await signInWithGoogle();
       if (result.hasError) {
         return { error: result.error };
+      }
+      // Clear recovery flag on successful sign-in
+      try {
+        await AsyncStorage.removeItem(RECOVERY_FLAG_KEY);
+      } catch (error) {
+        // Ignore errors
       }
       return { error: null };
     } catch (err: any) {
@@ -355,6 +448,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (result.hasError) {
         return { error: result.error };
       }
+      // Clear recovery flag on successful sign-in
+      try {
+        await AsyncStorage.removeItem(RECOVERY_FLAG_KEY);
+      } catch (error) {
+        // Ignore errors
+      }
       return { error: null };
     } catch (err: any) {
       console.error('[AuthContext] Auth error:', err);
@@ -363,6 +462,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const handleSignOut = async () => {
+    console.log('[AuthContext] 🚪 handleSignOut called - starting logout process');
+    
     // Set loading to false and clear user immediately to prevent white screen
     setLoading(false);
     setStatus('unauthenticated');
@@ -372,14 +473,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     lastUserIdRef.current = null;
     setUser(null);
     setSession(null);
+    
+    console.log('[AuthContext] ✅ Local state cleared');
+    
     // Clear recovery flag if it exists
     try {
       await AsyncStorage.removeItem(RECOVERY_FLAG_KEY);
     } catch (error) {
       // Ignore errors
     }
+    
     // Then call signOut to clear server-side session
+    console.log('[AuthContext] 📤 Calling supabase.auth.signOut()');
     await signOut();
+    console.log('[AuthContext] ✅ SignOut completed successfully');
   };
 
   const refreshProfileCompletion = async () => {

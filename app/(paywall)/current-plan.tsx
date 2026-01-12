@@ -27,7 +27,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function CurrentPlanScreen() {
   const router = useRouter();
-  const { subscription, loading, isPro, isFreeTrialActive } = useSubscription();
+  const { subscription, loading, isPro, isProPlus, isFreeTrialActive } = useSubscription();
   const insets = useSafeAreaInsets();
   const { activeOwnerId } = useActiveOwner();
   const { t, isRTL } = useLanguage();
@@ -36,9 +36,9 @@ export default function CurrentPlanScreen() {
   const styles = createStyles(isRTL);
   const [aiAnalysisCount, setAiAnalysisCount] = useState<number | null>(null);
   
-  // Precedence: Pro > Free Trial > Free
+  // Precedence: Pro+ > Pro > Free Trial > Free
   // Determine subscription tier with clear precedence
-  const subscriptionTier: SubscriptionTier = isPro ? 'pro' : (isFreeTrialActive ? 'free' : 'free');
+  const subscriptionTier: SubscriptionTier = isProPlus ? 'pro_plus' : (isPro ? 'pro' : (isFreeTrialActive ? 'free' : 'free'));
   
   // Log subscription state changes only (not on every render)
   const prevStateRef = useRef<{ tier: SubscriptionTier; isPro: boolean; isFreeTrialActive: boolean } | null>(null);
@@ -102,6 +102,8 @@ export default function CurrentPlanScreen() {
       case 'free':
         return 'account-outline';
       case 'pro':
+        return 'store';
+      case 'pro_plus':
         return 'crown';
       default:
         return 'account-outline';
@@ -113,6 +115,8 @@ export default function CurrentPlanScreen() {
       case 'free':
         return '#757575';
       case 'pro':
+        return '#4CAF50';
+      case 'pro_plus':
         return '#FF6B35';
       default:
         return '#757575';
@@ -151,7 +155,10 @@ export default function CurrentPlanScreen() {
   }, [activeOwnerId]);
 
   const getPlanName = () => {
-    // Precedence: Pro > Free Trial > Free
+    // Precedence: Pro+ > Pro > Free Trial > Free
+    if (isProPlus) {
+      return t('settings.subscriptionLabel.proPlus');
+    }
     if (isPro) {
       return t('settings.subscriptionLabel.pro');
     }
@@ -199,6 +206,17 @@ export default function CurrentPlanScreen() {
                     size={48}
                     color="#4CAF50"
                   />
+                ) : subscriptionTier === 'pro_plus' ? (
+                  <LinearGradient
+                    colors={['#9C27B0', '#7B1FA2']}
+                    style={styles.iconGradient}
+                  >
+                    <MaterialCommunityIcons
+                      name={getPlanIcon(subscriptionTier)}
+                      size={48}
+                      color="#FFFFFF"
+                    />
+                  </LinearGradient>
                 ) : subscriptionTier === 'pro' ? (
                   <LinearGradient
                     colors={['#FF6B35', '#E64A19']}
@@ -315,7 +333,7 @@ export default function CurrentPlanScreen() {
                     </View>
                   </View>
 
-                  {isUnlimited && subscriptionTier === 'pro' && (
+                  {isUnlimited && (subscriptionTier === 'pro' || subscriptionTier === 'pro_plus') && (
                     <View style={styles.unlimitedMessageContainer}>
                       <MaterialCommunityIcons
                         name="infinity"
@@ -394,7 +412,7 @@ export default function CurrentPlanScreen() {
                     color={getPlanColor(subscriptionTier)}
                   />
                   <Text variant="bodyLarge" style={[styles.featureText, rtlText]}>
-                    {subscriptionTier === 'pro' && isPaidActive
+                    {(subscriptionTier === 'pro' || subscriptionTier === 'pro_plus') && isPaidActive
                       ? t('subscription.noLockingPro')
                       : t('subscription.lockingFree')}
                   </Text>
@@ -425,7 +443,7 @@ export default function CurrentPlanScreen() {
                     { writingDirection: isRTL ? 'rtl' : 'ltr', textAlign: isRTL ? 'right' : 'left' },
                   ]}
                 >
-                  {subscriptionTier === 'pro' && isPaidActive
+                  {(subscriptionTier === 'pro' || subscriptionTier === 'pro_plus') && isPaidActive
                     ? t('subscription.aiUnlimited')
                     : remainingAnalyses == null
                     ? t('subscription.aiLoading')

@@ -61,7 +61,7 @@
     "and": "ו",
     "termsOfUse": "תנאי השימוש",
     "privacyPolicy": "מדיניות הפרטיות",
-    "termsError": "יש לסמן את ההסכמה לתנאי השימוש ומדיניות הפרטיות לפני ההרשמה.",
+    "termsError": "עליך לאשר את תנאי השימוש ומדיניות הפרטיות לפני המשך.",
     "profile": {
       "completeTitle": "השלם את הפרופיל שלך",
       "completeSubtitle": "אנא הזן את הפרטים הבאים כדי להמשיך",
@@ -83,7 +83,16 @@
     "all": "הכל",
     "expired": "פג תוקף",
     "empty": "אין מוצרים לפעולה היום. סרוק מוצר חדש",
-    "scan": "סרוק"
+    "scan": "סרוק",
+    "pendingDates": "ממתינים לתאריך",
+    "statusHintAction": "יש מוצרים שדורשים טיפול",
+    "statusHintOk": "הכול בשליטה 👍",
+    "savingsReport": "דוח חיסכון",
+    "heroNeedsAttention": "יש",
+    "heroProducts": "מוצרים שדורשים טיפול",
+    "heroAllGood": "👍 !הכול בשליטה",
+    "notificationsDisabled": "התראות כבויות",
+    "notificationsDisabledDescription": "לא תקבלו התראות על מוצרים שעומדים לפוג. לחצו כדי להפעיל בהגדרות."
   },
   "expiryAlert": {
     "whatHappened": "מה קרה?",
@@ -107,7 +116,10 @@
     "category": "קטגוריה",
     "allStatuses": "הכל",
     "allCategories": "הכל",
-    "apply": "החל"
+    "apply": "החל",
+    "filteredToday": "מסונן: היום",
+    "filtered7Days": "מסונן: 7 ימים",
+    "clearFilter": "נקה סינון"
   },
   "item": {
     "name": "שם",
@@ -152,8 +164,8 @@
     "guidanceText": "סרוק מוצרים כדי לחסוך זמן",
     "startScan": "התחל סריקה",
     "addWithoutBarcode": "הוסף ללא ברקוד",
-    "importTableAI": "ייבוא טבלה עם AI",
-    "importTableWithAI": "ייבוא טבלה עם AI",
+    "importTableAI": "הוספת מוצרים מטבלה",
+    "importTableWithAI": "הוספת מוצרים מטבלה",
     "viewerNotAllowed": "צופים לא יכולים להוסיף מוצרים",
     "viewerNotAllowedDesc": "כצופה, יש לך גישה לקריאה בלבד. אינך יכול לסרוק או להוסיף מוצרים."
   },
@@ -186,6 +198,7 @@
     "error": "אירעה שגיאה",
     "retry": "נסה שוב",
     "offline": "עובד ללא אינטרנט",
+    "networkError": "שגיאת רשת - בדוק את החיבור לאינטרנט",
     "save": "שמור",
     "skip": "דלג",
     "cancel": "ביטול",
@@ -196,12 +209,25 @@
     "days": "ימים",
     "close": "סגור",
     "ok": "הבנתי",
+    "later": "אולי מאוחר יותר",
+    "upgrade": "שדרג",
     "upgradeRequired": "שדרוג נדרש",
-    "upgradeRequiredMessage": "חרגת מכמות המוצרים המותרת בתוכנית החינמית. כדי לערוך את כל המוצרים ולקבל התראות ללא הגבלה, שדרג לתוכנית Pro.",
+    "upgradeRequiredMessage": "חרגת מכמות המוצרים המותרת בתוכנית החינמית. כדי לערוך את כל המוצרים ולקבל התראות, שדרג לתוכנית Pro.",
+    "upgradeRequiredMessagePro": "הגעת למגבלת 2,000 המוצרים של תוכנית Pro. כדי להמשיך להוסיף מוצרים, שדרג לתוכנית Pro+ שמאפשרת נפח עבודה גבוה יותר.",
+    "upgradeRequiredMessageProPlus": "הגעת למגבלת השימוש ההוגן. אנא צור קשר עם התמיכה.",
     "product": "מוצר",
     "products": "מוצרים",
+    "items": "פריטים",
     "noResults": "לא נמצאו תוצאות",
     "noProductsToDisplay": "אין מוצרים להצגה",
+    "noProductsYet": "אין עדיין מוצרים",
+    "letsAddFirst": "בוא נוסיף את המוצר הראשון שלך",
+    "addManually": "הוסף ידנית",
+    "noFilterResults": "לא נמצאו מוצרים",
+    "product_deleted": "המוצר נמחק",
+    "item_resolved": "המוצר סומן",
+    "tryDifferentSearch": "נסה חיפוש אחר",
+    "tryDifferentFilter": "נסה לשנות את הסינון",
     "languageChanged": {
       "title": "החלפת שפה",
       "message": "ייתכן שתצטרך להפעיל מחדש את האפליקציה כדי שהכיוון יתעדכן בכל המסכים."
@@ -216,7 +242,7 @@
     "warning": "אזהרה"
   },
   "status": {
-    "ok": "בסדר",
+    "ok": "תקין",
     "soon": "בקרוב",
     "expired": "פג תוקף",
     "resolved": "טופל"
@@ -246,8 +272,8 @@
       "description": "מחיקה אוטומטית והעדפות תאריך",
       "manageCategoriesDesc": "צור, ערוך ומחק קטגוריות מוצרים",
       "datePickerStyle": "סגנון בחירת תאריך",
-    "quickDelete": "מחיקת מוצרים מהירה",
-    "quickDeleteDesc": "בחר במהירות מוצרים למחיקה לפי קטגוריות",
+      "quickDelete": "מחיקת מוצרים מהירה",
+      "quickDeleteDesc": "בחר במהירות מוצרים למחיקה לפי קטגוריות",
       "datePickerStyleDesc": "בחר כיצד תרצה לבחור תאריכים באפליקציה",
       "datePickerCalendar": "לוח שנה",
       "datePickerCalendarDesc": "בחירת תאריך מלוח שנה גרפי",
@@ -268,8 +294,11 @@
     "logoutDesc": "התנתק מהחשבון הנוכחי",
     "collaboration": {
       "title": "שיתוף פעולה",
-      "currentOwner": "אתה כרגע עורך מוצרים של: {name}",
-      "leaveAccount": "צא מהחשבון הזה"
+      "currentOwner": "אתה כרגע עורך מוצרים של: %{name}",
+      "leaveAccount": "צא מהחשבון הזה",
+      "leave": "עזוב שיתוף",
+      "leftSuccess": "עזבת את השיתוף בהצלחה",
+      "leftError": "לא ניתן לעזוב את השיתוף. נסה שוב מאוחר יותר."
     },
     "teamManagement": "ניהול צוות",
     "teamManagementDesc": "הזמן/הסר עובדים",
@@ -320,7 +349,7 @@
     "notifications": {
       "dailyReminder": "תזכורת יומית",
       "reminderTime": "זמן תזכורת",
-      "timeFormat": "פורמט: HH:mm (לדוגמה: 09:00)",
+      "timeFormat": "בחר שעה (ברבעי שעה: 00, 15, 30, 45)",
       "timeInvalid": "פורמט זמן לא תקין (HH:mm)",
       "advanceWarning": "התראה מראש",
       "history": "היסטוריית התראות",
@@ -358,6 +387,7 @@
       "notFound": "התראה לא נמצאה",
       "items": "מוצרים בהתראה",
       "noItems": "לא נמצאו מוצרים",
+      "noTargetDate": "אין נתוני מוצרים עבור התראה זו",
       "markAllRead": "סמן הכל כנקרא",
       "testNotifications": "בחן התראות",
       "testDescription": "שלח התראה לדוגמה כדי לראות איך התראות יראו במכשיר שלך",
@@ -382,17 +412,20 @@
     "clearOldDataDesc": "עם אישור",
     "subscription": "מנוי",
     "currentPlan": "תוכנית נוכחית",
-    "currentPlanDesc": "בסיסי / Pro / ללא הגבלה",
+    "currentPlanDesc": "Free / Pro / Pro+",
     "account": "חשבון",
     "title": "הגדרות",
     "subscriptionDescription": {
       "trial": "ניסיון חינמי - %{days} ימים נותרים",
-      "pro": "תוכנית ללא הגבלות עם כל התכונות",
+      "proPlus": "תוכנית פרימיום לעסקים עם נפח גבוה",
+      "pro": "תוכנית לעסקים קטנים עם כל התכונות",
       "free": "תוכנית חינמית עם תכונות בסיסיות"
     },
     "subscriptionLabel": {
       "trial": "ניסיון חינמי",
-      "pro": "פרו",
+      "proPlus": "Pro+",
+      "pro": "Pro",
+      "pro_plus": "Pro+",
       "free": "חינמי"
     },
     "subscriptionAction": {
@@ -482,6 +515,13 @@
       "changePasswordInfo": "שינוי סיסמה זמין דרך מסך התחברות. אנא התנתק והשתמש באפשרות \"שכחתי סיסמה\".",
       "security": "אבטחה",
       "businessNameSaved": "שם העסק עודכן בהצלחה"
+    },
+    "collaboration": {
+      "title": "שיתוף פעולה",
+      "currentOwner": "אתה משתף פעולה עם: {{name}}",
+      "leaveAccount": "צא מהחשבון הזה",
+      "leftAccount": "יצאת מהחשבון. האפליקציה תתרענן כדי לטעון את הנתונים שלך.",
+      "leaveError": "לא ניתן לצאת מהחשבון"
     },
     "autoDelete": {
       "enable": "הפעל מחיקה אוטומטית",
@@ -639,17 +679,17 @@
     "endsOn": "מסתיים ב",
     "validUntil": "תוקף המנוי",
     "outOf": "מתוך",
-    "canAddUnlimited": "אתה יכול להוסיף מוצרים ללא הגבלה",
+    "canAddUnlimited": "אתה יכול להוסיף מוצרים בנפח גבוה",
     "nearLimit": "אתה קרוב למגבלה",
     "productsRemaining": "מוצרים נותרים",
     "whatsIncluded": "מה כלול בתוכנית",
-    "unlimitedProducts": "ללא הגבלת מוצרים",
+    "unlimitedProducts": "מוצרים בנפח גבוה",
     "upTo": "עד",
     "allBasicFeatures": "כל הפיצ'רים הבסיסיים",
     "noLockingPro": "אין נעילת מוצרים – אפשר לערוך את כל המוצרים ולקבל התראות על כולם",
     "lockingFree": "בתוכנית החינמית ניתן לנהל עד 150 מוצרים פתוחים. המוצרים הראשונים שהוספת יישארו פתוחים, והשאר יישארו לקריאה בלבד עד לשדרוג.",
     "fullSupport": "תמיכה מלאה",
-    "aiUnlimited": "ניתוחי טבלאות עם AI ללא הגבלה",
+    "aiUnlimited": "קליטת סחורה בנפח גבוה",
     "aiLoading": "ניתוחי טבלאות עם AI: ...",
     "aiFree": "ניתוחי טבלאות עם AI: %{remaining} / %{total} ניתוחים חינמיים",
     "upgradeToPro": "שדרג לתוכנית פרו",
@@ -657,15 +697,29 @@
     "expiredDescription": "המנוי שלך פג. הירשם לתוכנית הבסיסית כדי להמשיך להשתמש באפליקציה ללא הגבלות.",
     "subscribe": "הרשם עכשיו",
     "upgrade": "שדרג עכשיו",
-    "upgradeNote": "שדרג לתוכנית הבסיסית כדי להוסיף מוצרים ללא הגבלה",
+    "upgradeNote": "שדרג ל-Pro כדי להוסיף יותר מוצרים",
     "subscribeNote": "מחיר: %{price} ₪ לחודש",
     "subscribed": "המנוי הופעל בהצלחה!",
     "subscribeError": "לא ניתן לעבד את המנוי",
     "loadError": "לא ניתן לטעון מידע על המנוי",
+    "upgradeSuccessTitle": "שדרוג הושלם!",
+    "upgradeSuccessMessage": "התוכנית שודרגה בהצלחה. האפליקציה תטען מחדש.",
+    "planChangedTitle": "התוכנית שונתה",
+    "planChangedMessage": "התוכנית שלך שונתה. האפליקציה תטען מחדש.",
     "limitReached": {
       "title": "הגעת למגבלת התוכנית",
-      "message": "יש לך %{count} מוצרים. התוכנית החינמית מאפשרת %{maxItems}. שדרג כדי להמשיך להשתמש בכל הנתונים שלך.",
+      "message": "יש לך %{count} מוצרים. התוכנית שלך מאפשרת %{maxItems}. שדרג כדי להמשיך להשתמש בכל הנתונים שלך.",
       "upgrade": "שדרג עכשיו"
+    },
+    "proLimitReached": {
+      "title": "הגעת למגבלת תוכנית Pro",
+      "message": "יש לך %{count} מוצרים. תוכנית Pro מאפשרת עד 2,000 מוצרים. שדרג ל-Pro+ לנפח עבודה גבוה יותר.",
+      "upgrade": "שדרג ל-Pro+"
+    },
+    "proIntakeLimitReached": {
+      "title": "הגעת למגבלת קליטת סחורה",
+      "message": "תוכנית Pro מאפשרת עד 20 דפי קליטת סחורה בחודש. שדרג ל-Pro+ לנפח גבוה יותר.",
+      "upgrade": "שדרג ל-Pro+"
     },
     "trial5DayReminder": {
       "title": "5 days left of full access",
@@ -687,8 +741,8 @@
       "manageTitle": "נהל מנוי",
       "headerTitle": "בחר את התוכנית המתאימה לך",
       "headerSubtitle": "כל התוכניות כוללות את כל הפיצ'רים הבסיסיים",
-      "marketingSubtitle": "⭐ שדרג עכשיו – ביטול בכל עת",
-      "cancelAnytime": "⏳ ביטול בכל עת",
+      "marketingSubtitle": "בחר תוכנית לפי גודל העסק שלך",
+      "cancelAnytime": "ניתן לבטל בכל עת דרך הגדרות המכשיר",
       "priceComparison": "≈ פחות מ-1 ₪ ליום",
       "upgradeButtonText": "שדרג עכשיו ופתח הכל",
       "freePlanLimitations": "מגבלות התוכנית החינמית",
@@ -697,16 +751,33 @@
       "freePlanNoSupport": "ללא תמיכה עדיפות",
       "freePlanNoAdvanced": "ללא פיצ'רים מתקדמים",
       "recommended": "מומלץ",
+      "mostPopular": "הכי פופולרי",
       "currentPlan": "תוכנית נוכחית",
       "pricePerMonth": "/ חודש",
       "loadingPrice": "טוען מחיר...",
+      "loadingPriceFriendly": "טוען מחיר...",
       "priceLoadError": "לא ניתן לטעון מחיר",
+      "priceWillShowInStore": "המחיר יוצג כשהאפליקציה תהיה זמינה בחנות",
       "retryLoadPrice": "נסה שוב",
-      "featureUnlimited": "מוצרים ללא הגבלה",
+      "proDescription": "מתאים לעסק קטן",
+      "proPlusDescription": "לעסקים עם נפח עבודה גבוה",
+      "proFeature1": "עד 20 דפי קליטת סחורה בחודש",
+      "proFeature2": "עד 2,000 מוצרים",
+      "proFeature3": "כל הפיצ'רים",
+      "proFeature4": "גיבויים אוטומטיים",
+      "proPlusFeature1": "קליטת סחורה בנפח גבוה",
+      "proPlusFeature2": "מוצרים בנפח גבוה",
+      "proPlusFeature3": "מתאים למינימרקטים וסופרים",
+      "proPlusFeature4": "כל הפיצ'רים",
+      "upgradeToPro": "שדרג ל-Pro",
+      "upgradeToProPlus": "שדרג ל-Pro+",
+      "switchToPro": "החלף ל-Pro",
+      "fairUseNote": "השימוש מותאם לגודל העסק ונפח העבודה. שימוש חריג במיוחד עשוי לדרוש תכנית מתאימה יותר.",
+      "featureUnlimited": "מוצרים בנפח גבוה",
       "featureAll": "כל הפיצ'רים",
       "featureSupport": "תמיכה עדיפות גבוהה",
       "featureBackup": "גיבויים אוטומטיים",
-      "featureAITables": "הוספת טבלאות AI ללא הגבלה",
+      "featureAITables": "קליטת סחורה בנפח גבוה",
       "selectPro": "בחר תוכנית פרו",
       "active": "המנוי פעיל",
       "cancellationNote": "לביטול המנוי, יש להיכנס אל חנות %{store} ולבטל את החידוש בעמוד המנויים.",
@@ -720,7 +791,17 @@
       "restoreSuccess": "הרכישה שוחזרה בהצלחה!",
       "noPurchasesToRestore": "לא נמצאו רכישות לשחזור.",
       "restoreUnsupported": "רכישות אינן נתמכות בפלטפורמה הזו.",
-      "restoreLoginRequired": "יש להתחבר כדי לשחזר רכישות"
+      "restoreLoginRequired": "יש להתחבר כדי לשחזר רכישות",
+      "downgradeDialog": {
+        "title": "מעבר לתוכנית Pro",
+        "message": "אתה עומד לעבור מתוכנית Pro+ לתוכנית Pro.\n\nמגבלות תוכנית Pro:",
+        "limit1": "• עד 2,000 מוצרים (במקום נפח גבוה)",
+        "limit2": "• עד 20 דפי קליטת סחורה בחודש (במקום נפח גבוה)",
+        "whenChange": "\nהמעבר יתבצע בתאריך החידוש הבא.",
+        "untilThen": "עד אז תמשיך ליהנות מכל היתרונות של Pro+.",
+        "continue": "המשך למעבר",
+        "cancel": "ביטול"
+      }
     },
     "manage": {
       "title": "ניהול מנוי",
@@ -739,6 +820,13 @@
       "restoreError": "לא נמצאו רכישות לשחזור.",
       "restoreSuccess": "הרכישה שוחזרה בהצלחה!"
     }
+  },
+  "proLimit": {
+    "title": "הגעת למגבלת תוכנית Pro",
+    "description": "כל הכבוד! הגעת ל-2,000 מוצרים בתוכנית Pro.",
+    "currentPlan": "תוכנית Pro: 2,000 מוצרים",
+    "upgradeTo": "שדרג ל-Pro Plus: מוצרים ללא הגבלה",
+    "note": "מוצרים חדשים מעל 2,000 יהיו נעולים עד לשדרוג או מחיקת מוצרים קיימים."
   },
   "info": {
     "termsSummary": {
@@ -996,7 +1084,11 @@
     "inviteTitle": "הוסף עובד חדש",
     "emailLabel": "אימייל",
     "roleLabel": "הרשאות",
-    "sendInvite": "שלח הזמנה"
+    "sendInvite": "שלח הזמנה",
+    "changeRoleTitle": "שינוי הרשאות",
+    "changeRoleMessage": "האם לשנות את ההרשאות של {{name}} ל{{role}}?",
+    "changeRoleError": "לא ניתן לשנות את ההרשאות",
+    "roleChanged": "ההרשאות עודכנו בהצלחה"
   },
   "sharedWithMe": {
     "title": "הזמנות ממעסיקים",
@@ -1017,6 +1109,7 @@
     "active": "פעיל",
     "pending": "ממתין",
     "ownerSwitched": "עברת לעבוד על הנתונים של הבעלים הזה.",
+    "needsRefresh": "עברת לחשבון אחר. האפליקציה תתרענן כדי לטעון את הנתונים החדשים.",
     "switchError": "לא ניתן לעבור לבעלים הזה.",
     "myAccount": "החשבון שלי"
   },
@@ -1029,7 +1122,7 @@
       "empty": "אין מוצרים להצגה",
       "statusNeedsAttention": "יש {{count}} מוצרים שדורשים טיפול",
       "statusNeedsAttentionSingle": "יש מוצר אחד שדורש טיפול",
-      "statusAllGood": "אין מוצרים שדורשים טיפול כרגע 👍",
+      "statusAllGood": "👍 אין מוצרים שדורשים טיפול כרגע",
       "searchPlaceholder": "חפש מוצר לפי שם או ברקוד"
     },
     "expired": {
@@ -1040,7 +1133,7 @@
       "empty": "אין מוצרים שפג תוקפם",
       "statusExpired": "יש {{count}} מוצרים שפג תוקפם",
       "statusExpiredSingle": "יש מוצר אחד שפג תוקפו",
-      "statusAllGood": "אין מוצרים שפג תוקפם 👍",
+      "statusAllGood": "👍 אין מוצרים שפג תוקפם",
       "searchPlaceholder": "חפש מוצר שפג תוקפו"
     },
     "scan": {
@@ -1074,7 +1167,9 @@
       "limitReached": {
         "title": "הגעת למגבלת התוכנית החינמית",
         "message": "התוכנית החינמית מאפשרת עד 150 מוצרים בלבד. כדי להמשיך להוסיף מוצרים, יש לשדרג לתוכנית פרו.",
-        "upgrade": "שדרג לתוכנית פרו"
+        "upgrade": "שדרג לתוכנית פרו",
+        "collaboratorMessage": "הבעלים הגיע למגבלת התוכנית החינמית של 150 מוצרים. הבעלים צריך לשדרג לתוכנית Pro כדי להוסיף מוצרים נוספים.",
+        "collaboratorMessagePro": "הבעלים הגיע למגבלת תוכנית Pro של 2,000 מוצרים. הבעלים צריך לשדרג ל-Pro+ כדי להוסיף מוצרים נוספים."
       },
       "subscriptionExpired": {
         "title": "המנוי שלך הסתיים",
@@ -1086,7 +1181,8 @@
     "aiImport": {
       "title": "AI ייבוא טבלה עם",
       "subtitle": "צלם או העלה תמונה של טבלה עם מוצרים ותאריכי תפוגה, וה־AI ימלא עבורך את הרשימה אוטומטית",
-      "usagePro": "ניתוחי טבלאות באמצעות AI: ללא הגבלה בתוכנית Pro",
+      "imageQualityHint": "עדיפות לתמונה עם טקסט ברור כדי שהזיהוי יהיה מדויק",
+      "usagePro": "קליטת סחורה בנפח גבוה בתוכנית Pro",
       "usageFree": "ניתוחי טבלאות חינמיים שנותרו: %{remaining} מתוך %{total}",
       "selectImage": "בחר תמונה",
       "analyzing": "מנתח את הטבלה...",
@@ -1108,6 +1204,7 @@
         "tryAnyway": "לנסות בכל זאת",
         "errorPickingImage": "שגיאה בבחירת תמונה",
         "noOwner": "לא נמצא בעלים פעיל",
+        "loadingOwner": "טוען נתונים, אנא המתן...",
         "unknownError": "שגיאה לא ידועה",
         "aiNotConfigured": "שירות ה-AI לא מוגדר. אנא הגדר OPENAI_API_KEY ב-Supabase Dashboard → Project Settings → Edge Functions → Secrets",
         "imageTooLargeError": "התמונה גדולה מדי. נסה תמונה קטנה יותר או חתוך אותה.",
@@ -1118,13 +1215,26 @@
         "internalError": "שגיאה פנימית בשרת. בדוק את לוגי הפונקציה.",
         "analysisError": "שגיאה בניתוח התמונה: {error}",
         "noProductsFound": "לא נמצאו מוצרים בתמונה",
+        "noDateFound": "לא נמצאו תאריכי תפוגה - יש להזין ידנית",
+        "someDatesNotFound": "ל-{{count}} מוצרים לא נמצא תאריך תפוגה",
         "viewerCannotSave": "צופים לא יכולים לשמור מוצרים",
         "noItemsToSave": "אין מוצרים לשמירה",
         "validationError": "יש למלא שם ותאריך תפוגה לכל המוצרים",
         "limitReached": "הגעת למגבלת התוכנית החינמית",
         "limitReachedMessage": "בתוכנית החינמית ניתן לנהל עד 150 מוצרים פתוחים. כרגע אתה מנהל 150 המוצרים הראשונים שהוספת. כדי לפתוח את כל המוצרים – שדרג לתוכנית Pro.",
         "saveError": "שגיאה בשמירת המוצרים: {error}",
-        "saveSuccess": "המוצרים נוספו בהצלחה"
+        "saveSuccess": "המוצרים נוספו בהצלחה",
+        "savingInProgress": "הפריטים יוספו בעוד כמה רגעים...",
+        "partialSuccess": "נשמרו {{saved}} מתוך {{total}} מוצרים",
+        "savedOffline": "{{count}} מוצרים נשמרו מקומית - יסונכרנו כשתתחבר",
+        "mixedSuccess": "{{online}} נשמרו, {{offline}} ממתינים לסנכרון",
+        "allFailed": "לא ניתן לשמור את המוצרים - נסה שוב",
+        "retryFailed": "נסה שוב ({count})",
+        "networkError": "שגיאת רשת - בדוק את החיבור ונסה שוב"
+      },
+      "success": {
+        "itemsNeedReview": "נמצאו {{total}} פריטים, {{needReview}} דורשים תיקון תאריך",
+        "allItemsComplete": "נמצאו {{count}} פריטים"
       },
       "limitDialog": {
         "title": "לא ניתן לבצע ניתוח נוסף",
@@ -1140,7 +1250,7 @@
   "buttons": {
     "scanProduct": "סרוק מוצר",
     "addWithoutBarcode": "הוסף ללא ברקוד",
-    "importTableAI": "ייבוא טבלה עם AI",
+    "importTableAI": "הוספת מוצרים מטבלה",
     "supplierIntake": "קבלת סחורה",
     "pendingFromSupplier": "פריטים מהספק"
   },
@@ -1164,7 +1274,8 @@
     "saved": "נשמר!",
     "matchedSupplierItem": "הותאם לסחורה מהספק",
     "nameSaved": "השם נשמר",
-    "dateUpdated": "התאריך עודכן"
+    "dateUpdated": "התאריך עודכן",
+    "distanceHint": "15-25 ס״מ מהברקוד"
   },
   "onboarding": {
     "welcome": {
@@ -1173,7 +1284,22 @@
       "body2": "לאחר סיום תקופת הניסיון, תוכל להמשיך להשתמש בתוכנית החינמית ולנהל עד 150 מוצרים פעילים. המוצרים הראשונים שהוספת יישארו פתוחים לעריכה.",
       "body3": "כדי לפתוח את כל המוצרים ולקבל גישה מלאה לכל התכונות, תוכל לשדרג בכל עת לתוכנית Pro.",
       "button": "הבנתי, בואו נתחיל"
-    }
+    },
+    "slide1": {
+      "title": "ניהול תוקף בלי כאב ראש",
+      "subtitle": "האפליקציה מזכירה לך לפני שמוצרים נזרקים"
+    },
+    "slide2": {
+      "title": "זה לוקח שניות",
+      "bullet1": "סריקה או הזנה ידנית",
+      "bullet2": "תאריך תפוגה",
+      "bullet3": "התראה בזמן"
+    },
+    "slide3": {
+      "title": "בוא נתחיל"
+    },
+    "addFirstProduct": "הוסף מוצר ראשון",
+    "skip": "דלג"
   },
   "quickDelete": {
     "title": "מחיקת מוצרים מהירה",
@@ -1189,7 +1315,9 @@
     "confirmDeleteAllMessage": "האם אתה בטוח שברצונך למחוק את כל המוצרים שלך?\n\nפעולה זו היא בלתי הפיכה ולא ניתן לבטל אותה.",
     "confirmDeleteAll": "מחק הכל",
     "confirmDeleteSelectedMessage": "האם אתה בטוח שברצונך למחוק את %{count} המוצרים שנבחרו?\n\nפעולה זו היא בלתי הפיכה ולא ניתן לבטל אותה.",
-    "confirmDelete": "מחק"
+    "confirmDelete": "מחק",
+    "searchPlaceholder": "חיפוש מוצר...",
+    "noSearchResults": "לא נמצאו תוצאות"
   },
   "supplierIntake": {
     "title": "קבלת סחורה",
@@ -1203,6 +1331,9 @@
     "foundItems": "נמצאו {count} פריטים",
     "itemsAdded": "{count} פריטים נוספו",
     "remainingAnalyses": "נותרו {count} ניתוחים",
+    "remainingPages": "נותרו {count} דפי קליטה",
+    "proRemainingPages": "נותרו {count} דפי קליטה החודש",
+    "resetDate": "איפוס ב-{date}",
     "loading": "טוען...",
     "viewerCannotImport": "צופים לא יכולים לייבא",
     "permissionRequired": "נדרשת הרשאה",
@@ -1211,15 +1342,33 @@
     "errorCapturing": "שגיאה בצילום",
     "errorPicking": "שגיאה בבחירת תמונה",
     "aiError": "שגיאה בניתוח התמונה",
+    "quotaExceeded": "ניצלת את כל דפי הקליטה החודשיים",
+    "noRemainingPages": "לא נותרו דפי קליטה החודש",
+    "noMoreFreePages": "לא נותרו דפי קליטה חינמיים. שדרג לתוכנית Pro",
+    "keepAppOpen": "יש להשאיר את האפליקציה פתוחה בזמן העיבוד. נסה שוב.",
     "noItemsFound": "לא נמצאו פריטים בתמונה",
     "saveError": "שגיאה בשמירת הפריטים",
     "limitReached": "הגעת למגבלה",
-    "limitMessage": "ניתוחי AI מוגבלים בחשבון חינמי. שדרג לפרו לניתוחים ללא הגבלה."
+    "limitMessage": "ניתוחי AI מוגבלים בחשבון חינמי. שדרג ל-Pro לנפח גבוה יותר.",
+    "freeLimitMessage": "קליטת סחורה מוגבלת ל-10 דפים בחשבון חינמי. שדרג ל-Pro לנפח גבוה יותר.",
+    "proLimitMessage": "הגעת למגבלת 20 דפי קליטה בחודש. שדרג ל-Pro+ לנפח גבוה יותר.",
+    "limitResetInfo": "המכסה תתאפס ב-{date}",
+    "dateChoiceTitle": "מה עכשיו?",
+    "dateChoiceMessage": "נוספו {count} פריטים. האם להזין תאריכי תפוגה עכשיו?",
+    "dateChoiceQuestion": "האם להזין תאריכי תפוגה עכשיו?",
+    "enterNow": "הזן עכשיו",
+    "enterLater": "מאוחר יותר",
+    "itemsNeedNames": "{{count}} פריטים דורשים השלמת שם",
+    "foundFromHistory": "{{count}} מוצרים זוהו מהיסטוריה",
+    "needsManualName": "דרוש שם",
+    "enterProductName": "הזן שם מוצר",
+    "aiRefusedError": "ה-AI סירב לעבד את התמונה. נסה תמונה אחרת."
   },
   "pendingExpiry": {
     "title": "השלמת תאריכים",
     "remaining": "נותרו {count}",
     "enterDate": "הזן תאריך",
+    "enterName": "נא להזין שם מוצר",
     "unknownProduct": "מוצר לא מזוהה",
     "saved": "נשמר!",
     "deleted": "נמחק",
@@ -1227,7 +1376,54 @@
     "saveError": "שגיאה בשמירה",
     "deleteError": "שגיאה במחיקה",
     "allDone": "הכל בוצע!",
-    "noItems": "אין פריטים ממתינים לתאריך תפוגה"
+    "noItems": "אין פריטים ממתינים לתאריך תפוגה",
+    "limitReached": "הגעת למגבלת 150 מוצרים בתוכנית החינמית. שדרג לפרו להוספת מוצרים נוספים.",
+    "deleteAll": "מחק הכל",
+    "deleteAllTitle": "מחיקת כל הפריטים",
+    "deleteAllMessage": "האם אתה בטוח שברצונך למחוק את כל {count} הפריטים?",
+    "allDeleted": "כל הפריטים נמחקו",
+    "tapToEnterName": "לחץ להזנת שם",
+    "autoDetectedTitle": "זיהוי אוטומטי מתעודת משלוח",
+    "autoDetectedMessage": "חלק מהפרטים זוהו אוטומטית ועשויים לדרוש אימות. ניתן להשלים או לסרוק ברקוד במידת הצורך."
+  },
+  "statistics": {
+    "title": "סקירה",
+    "thisMonth": "החודש",
+    "year": "השנה",
+    "handled": "טופלו",
+    "thrown": "נזרקו",
+    "handledVsThrown": "טופלו מול נזרקו",
+    "topThrownProducts": "טופ 3 מוצרים שנזרקו",
+    "showMore": "ראה את שאר המקומות",
+    "showLess": "הצג פחות",
+    "noData": "אין נתונים להצגה",
+    "noThrownProducts": "אין מוצרים שנזרקו",
+    "rank": "מקום",
+    "resetStatistics": "איפוס סטטיסטיקות",
+    "resetConfirmTitle": "איפוס סטטיסטיקות",
+    "resetConfirmMessage": "איפוס יאפס את כל נתוני הסטטיסטיקות שמוצגים במסך (החודש וכל הזמן).\n\nהפעולה אינה ניתנת לשחזור.",
+    "resetMonthConfirmTitle": "איפוס סטטיסטיקות החודש",
+    "resetMonthConfirmMessage": "האם לאפס את סטטיסטיקות החודש הנוכחי בלבד?\n\nהפעולה אינה ניתנת לשחזור.",
+    "resetYearConfirmTitle": "איפוס סטטיסטיקות השנה",
+    "resetYearConfirmMessage": "האם לאפס את סטטיסטיקות השנה הנוכחית?\n\nהפעולה אינה ניתנת לשחזור.",
+    "resetConfirmButton": "אפס סטטיסטיקות",
+    "resetSuccess": "הסטטיסטיקות אופסו בהצלחה",
+    "resetMonthSuccess": "סטטיסטיקות החודש אופסו בהצלחה",
+    "resetYearSuccess": "סטטיסטיקות השנה אופסו בהצלחה",
+    "resetError": "לא ניתן לאפס את הסטטיסטיקות",
+    "handledPercent": "טופלו",
+    "thrownPercent": "נזרקו",
+    "ofTotal": "מתוך הכל",
+    "thrownProductsList": "מוצרים שנזרקו",
+    "close": "סגור"
+  },
+  "offline": {
+    "youAreOffline": "אין חיבור לאינטרנט",
+    "syncing": "מסנכרן נתונים...",
+    "pendingItems": "{{count}} פריטים ממתינים לסנכרון",
+    "savedLocally": "נשמר מקומית - יסונכרן כשתתחבר לאינטרנט",
+    "syncComplete": "הסנכרון הושלם בהצלחה",
+    "syncFailed": "הסנכרון נכשל - ננסה שוב בקרוב",
+    "itemsSynced": "{{count}} פריטים סונכרנו בהצלחה"
   }
 }
-

@@ -48,13 +48,24 @@ export default function CompleteProfileScreen() {
   }, [user, isProfileComplete, profile, router]);
 
   // Prefill email from profile or user if available
+  // For Apple sign-in users, don't prefill email at all (let them enter their preferred contact email)
   useEffect(() => {
+    // Check if user signed in with Apple
+    const isAppleUser = 
+      user?.app_metadata?.provider === 'apple' || 
+      user?.email?.endsWith('@privaterelay.appleid.com');
+    
+    // If Apple user, don't prefill email - let them enter their preferred contact email
+    if (isAppleUser) {
+      return;
+    }
+
     if (profile?.email && profile.email.trim() !== '') {
       setContactEmail(profile.email);
       return;
     }
 
-    if (user?.email && !user.email.endsWith('@privaterelay.appleid.com')) {
+    if (user?.email) {
       setContactEmail(user.email);
     }
   }, [user, profile]);
@@ -95,7 +106,7 @@ export default function CompleteProfileScreen() {
     }
 
     if (!hasAcceptedTerms) {
-      const message = 'עליך לאשר את תנאי השימוש ומדיניות הפרטיות לפני המשך';
+      const message = t('auth.termsError') || 'יש לסמן את ההסכמה לתנאי השימוש ומדיניות הפרטיות';
       setTermsError(message);
       setError(message);
       setShowError(true);
@@ -230,19 +241,19 @@ export default function CompleteProfileScreen() {
           />
             <View style={styles.termsTextContainer}>
               <Text style={[styles.termsText, rtlText]}>
-                אני מאשר/ת את{' '}
+                {t('auth.acceptTermsPrefix')}{' '}
                 <Text
                   style={styles.linkText}
                   onPress={() => Linking.openURL('https://expiryx.app/terms')}
                 >
-                  תנאי השימוש
+                  {t('auth.termsOfUse')}
                 </Text>
-                {' '}ו{' '}
+                {' '}{t('auth.and')}{' '}
                 <Text
                   style={styles.linkText}
                   onPress={() => Linking.openURL('https://expiryx.app/privacy')}
                 >
-                  מדיניות הפרטיות
+                  {t('auth.privacyPolicy')}
                 </Text>
               </Text>
             </View>

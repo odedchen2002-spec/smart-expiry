@@ -209,7 +209,7 @@ export default function LocationsScreen() {
 
   return (
     <View style={styles.container}>
-      <Appbar.Header>
+      <Appbar.Header style={{ backgroundColor: '#F5F5F5' }}>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title={t('settings.locationsTitle') || 'מיקומים / אחסון'} />
       </Appbar.Header>

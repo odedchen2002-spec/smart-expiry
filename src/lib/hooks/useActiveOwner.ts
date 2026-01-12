@@ -3,13 +3,14 @@
  * Handles owner/collaborator model where users can own products or collaborate on others' products
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@/context/AuthContext';
-import { useProfile } from './useProfile';
-import { supabase } from '../supabase/client';
+import { useCacheReady } from '@/context/CacheContext';
 import type { Database } from '@/types/database';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useCallback, useEffect, useState } from 'react';
+import { supabase } from '../supabase/client';
 import { getActiveCollaborations } from '../supabase/queries/collaborations';
+import { useProfile } from './useProfile';
 
 type Profile = Database['public']['Tables']['profiles']['Row'];
 type Collaboration = Database['public']['Tables']['collaborations']['Row'];
@@ -31,7 +32,12 @@ const ACTIVE_OWNER_ID_KEY = 'active_owner_id';
 export function useActiveOwner() {
   const { user } = useAuth();
   const { profile: selfProfileData } = useProfile();
-  const [activeOwnerId, setActiveOwnerIdState] = useState<string | null>(null);
+  const { cachedOwnerId } = useCacheReady();
+  
+  // Initialize with cached owner ID if available, otherwise user ID, otherwise null
+  // This provides instant ownerId availability without waiting for async operations
+  const initialOwnerId = cachedOwnerId || user?.id || null;
+  const [activeOwnerId, setActiveOwnerIdState] = useState<string | null>(initialOwnerId);
   const [ownerProfile, setOwnerProfile] = useState<OwnerProfile | null>(null);
   const [isOwner, setIsOwner] = useState<boolean>(true);
   const [collaborations, setCollaborations] = useState<Collaboration[]>([]);
@@ -39,6 +45,16 @@ export function useActiveOwner() {
   const [collaborationRole, setCollaborationRole] = useState<'editor' | 'viewer' | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+
+  // Set activeOwnerId to user.id immediately when user becomes available
+  // This prevents "flash of null" for ownerId when showing user's own data
+  useEffect(() => {
+    if (user?.id && !activeOwnerId) {
+      // User just logged in and we don't have an activeOwnerId yet
+      // Use user.id as the default (viewing own data)
+      setActiveOwnerIdState(cachedOwnerId || user.id);
+    }
+  }, [user?.id, cachedOwnerId, activeOwnerId]);
 
   // Load activeOwnerId from storage
   const loadActiveOwnerId = useCallback(async (): Promise<string | null> => {
@@ -187,6 +203,19 @@ export function useActiveOwner() {
       setLoading(true);
       setError(null);
 
+      // Helper to check if error is network-related
+      const isNetworkError = (err: any): boolean => {
+        if (!err) return false;
+        const message = err.message?.toLowerCase() || '';
+        return (
+          message.includes('network') ||
+          message.includes('connection') ||
+          message.includes('fetch') ||
+          message.includes('timeout') ||
+          message.includes('offline')
+        );
+      };
+
       // 1. Fetch current user's profile
       const { data: currentProfile, error: profileError } = await supabase
         .from('profiles')
@@ -195,6 +224,14 @@ export function useActiveOwner() {
         .maybeSingle();
 
       if (profileError) {
+        if (isNetworkError(profileError)) {
+          console.warn('[useActiveOwner] Network error fetching profile - using default');
+          // Use user.id as fallback when offline
+          setActiveOwnerIdState(user.id);
+          setIsOwner(true);
+          setLoading(false);
+          return;
+        }
         console.error('Error fetching current profile:', profileError);
         setError(profileError as Error);
         return;
@@ -233,8 +270,13 @@ export function useActiveOwner() {
       try {
         const collabsWithOwners = await getActiveCollaborations(user.id);
         activeCollabs = collabsWithOwners.map((c) => c.collaboration);
-      } catch (collabError) {
-        console.error('Error fetching collaborations:', collabError);
+      } catch (collabError: any) {
+        // Network errors already handled in getActiveCollaborations
+        // Only log non-network errors here
+        const msg = collabError?.message?.toLowerCase() || '';
+        if (!msg.includes('network') && !msg.includes('connection')) {
+          console.error('Error fetching collaborations:', collabError);
+        }
         // Don't fail completely - user might not have any collaborations
       }
 
@@ -249,23 +291,30 @@ export function useActiveOwner() {
         },
       ];
 
-      // Add owners from active collaborations
-      for (const collab of activeCollabs) {
-        const { data: ownerProf } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', collab.owner_id)
-          .maybeSingle();
+      // Add owners from active collaborations - fetch ALL in parallel for speed
+      if (activeCollabs.length > 0) {
+        const ownerProfiles = await Promise.all(
+          activeCollabs.map(async (collab) => {
+            const { data: ownerProf } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', collab.owner_id)
+              .maybeSingle();
+            return { collab, ownerProf };
+          })
+        );
 
-        if (ownerProf) {
-          owners.push({
-            id: collab.owner_id,
-            profile: {
-              ...ownerProf,
-              username: (ownerProf as any).username || (ownerProf as any).profile_name || '',
-            } as OwnerProfile,
-            isSelf: false,
-          });
+        for (const { collab, ownerProf } of ownerProfiles) {
+          if (ownerProf) {
+            owners.push({
+              id: collab.owner_id,
+              profile: {
+                ...ownerProf,
+                username: (ownerProf as any).username || (ownerProf as any).profile_name || '',
+              } as OwnerProfile,
+              isSelf: false,
+            });
+          }
         }
       }
 
@@ -306,8 +355,18 @@ export function useActiveOwner() {
       await fetchOwnerProfile(ownerId);
     } catch (err) {
       const error = err as Error;
-      console.error('Exception in fetchActiveOwner:', error);
-      setError(error);
+      const message = error.message?.toLowerCase() || '';
+      const isNetwork = message.includes('network') || message.includes('connection') || message.includes('offline');
+      
+      if (isNetwork) {
+        console.warn('[useActiveOwner] Network error - using cached/default owner');
+        // Don't set error state for network issues - use default
+        setActiveOwnerIdState(user.id);
+        setIsOwner(true);
+      } else {
+        console.error('Exception in fetchActiveOwner:', error);
+        setError(error);
+      }
     } finally {
       setLoading(false);
     }

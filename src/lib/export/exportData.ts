@@ -91,13 +91,12 @@ function formatDateForDisplay(dateString: string | null | undefined): string {
  * Generate CSV content from items
  */
 export function generateCSV(items: ItemWithDetails[]): string {
-  // CSV header in Hebrew - id, name, barcode, expiration_date, category, notes, created_at, updated_at
+  // CSV header in Hebrew - id, name, barcode, expiration_date, notes, created_at, updated_at
   const headers = [
     'מזהה',
     'שם מוצר',
     'ברקוד',
     'תאריך תפוגה',
-    'קטגוריה',
     'הערות',
     'נוצר ב',
     'עודכן ב',
@@ -110,7 +109,6 @@ export function generateCSV(items: ItemWithDetails[]): string {
       escapeCsvField(item.product_name || item.barcode_snapshot || 'ללא שם'),
       escapeCsvField(item.product_barcode || item.barcode_snapshot || ''),
       escapeCsvField(formatDateForCsv(item.expiry_date)),
-      escapeCsvField(item.product_category || ''),
       escapeCsvField(item.note || ''),
       escapeCsvField(formatDateForCsv(item.created_at)),
       escapeCsvField(formatDateForCsv(item.updated_at)),
@@ -143,22 +141,23 @@ export function generateExportFilename(
 }
 
 /**
- * Get date range label in Hebrew
+ * Get date range label based on locale
  */
-export function getDateRangeLabel(dateRange: DateRange): string {
+export function getDateRangeLabel(dateRange: DateRange, locale: string = 'he'): string {
+  const isEnglish = locale === 'en';
   switch (dateRange) {
     case 'all':
-      return 'הכל';
+      return isEnglish ? 'All' : 'הכל';
     case 'today':
-      return 'היום';
+      return isEnglish ? 'Today' : 'היום';
     case 'tomorrow':
-      return 'מחר';
+      return isEnglish ? 'Tomorrow' : 'מחר';
     case 'week':
-      return '7 הימים הבאים';
+      return isEnglish ? 'Next 7 Days' : '7 הימים הבאים';
     case 'expired':
-      return 'פג תוקף';
+      return isEnglish ? 'Expired' : 'פג תוקף';
     default:
-      return 'הכל';
+      return isEnglish ? 'All' : 'הכל';
   }
 }
 
@@ -188,37 +187,52 @@ export async function exportAsCSV(
  */
 function generatePDFHTML(
   items: ItemWithDetails[],
-  dateRange: DateRange
+  dateRange: DateRange,
+  locale: string = 'he'
 ): string {
-  const dateRangeLabel = getDateRangeLabel(dateRange);
+  const isEnglish = locale === 'en';
+  const dateRangeLabel = getDateRangeLabel(dateRange, locale);
+  const direction = isEnglish ? 'ltr' : 'rtl';
+  const textAlign = isEnglish ? 'left' : 'right';
+  const lang = isEnglish ? 'en' : 'he';
 
-  // Filter items to show important columns for PDF: שם מוצר, ברקוד, תאריך תפוגה, קטגוריה
+  // Localized labels
+  const labels = {
+    title: isEnglish ? 'Products Report' : 'דו"ח מוצרים',
+    dateRangePrefix: isEnglish ? 'Date Range:' : 'טווח תאריכים:',
+    productName: isEnglish ? 'Product Name' : 'שם מוצר',
+    barcode: isEnglish ? 'Barcode' : 'ברקוד',
+    expiryDate: isEnglish ? 'Expiry Date' : 'תאריך תפוגה',
+    createdAt: isEnglish ? 'Created at:' : 'נוצר ב:',
+    totalProducts: isEnglish ? 'Total Products:' : 'סה"כ מוצרים:',
+    noName: isEnglish ? 'No Name' : 'ללא שם',
+  };
+
+  // Filter items to show important columns for PDF
   const tableRows = items.map((item) => {
-    const name = item.product_name || item.barcode_snapshot || 'ללא שם';
+    const name = item.product_name || item.barcode_snapshot || labels.noName;
     const barcode = item.product_barcode || item.barcode_snapshot || '';
     const expiryDate = formatDateForDisplay(item.expiry_date);
-    const category = item.product_category || '';
 
     return `
       <tr>
-        <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">${escapeHtml(name)}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">${escapeHtml(barcode)}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">${escapeHtml(expiryDate)}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">${escapeHtml(category)}</td>
+        <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: ${textAlign};">${escapeHtml(name)}</td>
+        <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: ${textAlign};">${escapeHtml(barcode)}</td>
+        <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: ${textAlign};">${escapeHtml(expiryDate)}</td>
       </tr>
     `;
   });
 
   const html = `
     <!DOCTYPE html>
-    <html dir="rtl" lang="he">
+    <html dir="${direction}" lang="${lang}">
     <head>
       <meta charset="UTF-8">
       <style>
         body {
           font-family: Arial, sans-serif;
           padding: 20px;
-          direction: rtl;
+          direction: ${direction};
         }
         h1 {
           text-align: center;
@@ -239,14 +253,14 @@ function generatePDFHTML(
         th {
           background-color: #F5F5F5;
           padding: 12px 8px;
-          text-align: right;
+          text-align: ${textAlign};
           font-weight: 600;
           border-bottom: 2px solid #ddd;
         }
         td {
           padding: 8px;
           border-bottom: 1px solid #ddd;
-          text-align: right;
+          text-align: ${textAlign};
         }
         .footer {
           margin-top: 24px;
@@ -257,15 +271,14 @@ function generatePDFHTML(
       </style>
     </head>
     <body>
-      <h1>דו"ח מוצרים</h1>
-      <div class="subtitle">טווח תאריכים: ${dateRangeLabel}</div>
+      <h1>${labels.title}</h1>
+      <div class="subtitle">${labels.dateRangePrefix} ${dateRangeLabel}</div>
       <table>
         <thead>
           <tr>
-            <th>שם מוצר</th>
-            <th>ברקוד</th>
-            <th>תאריך תפוגה</th>
-            <th>קטגוריה</th>
+            <th>${labels.productName}</th>
+            <th>${labels.barcode}</th>
+            <th>${labels.expiryDate}</th>
           </tr>
         </thead>
         <tbody>
@@ -273,7 +286,7 @@ function generatePDFHTML(
         </tbody>
       </table>
       <div class="footer">
-        נוצר ב: ${formatDate(new Date(), 'dd.MM.yyyy HH:mm')} | סה"כ מוצרים: ${items.length}
+        ${labels.createdAt} ${formatDate(new Date(), 'dd.MM.yyyy HH:mm')} | ${labels.totalProducts} ${items.length}
       </div>
     </body>
     </html>
@@ -302,10 +315,11 @@ function escapeHtml(text: string | null | undefined): string {
 export async function exportAsPDF(
   items: ItemWithDetails[],
   dateRange: DateRange,
-  ownerName?: string
+  ownerName?: string,
+  locale: string = 'he'
 ): Promise<string> {
   // Generate HTML
-  const html = generatePDFHTML(items, dateRange);
+  const html = generatePDFHTML(items, dateRange, locale);
 
   // Generate PDF - printToFileAsync creates a file and returns its URI
   // The filename is automatically generated by expo-print
@@ -324,10 +338,11 @@ export async function exportAsPDF(
 /**
  * Share file using system share sheet
  */
-export async function shareFile(fileUri: string): Promise<void> {
+export async function shareFile(fileUri: string, locale: string = 'he'): Promise<void> {
+  const isEnglish = locale === 'en';
   const isAvailable = await Sharing.isAvailableAsync();
   if (!isAvailable) {
-    throw new Error('שיתוף לא זמין במכשיר זה');
+    throw new Error(isEnglish ? 'Sharing is not available on this device' : 'שיתוף לא זמין במכשיר זה');
   }
 
   await Sharing.shareAsync(fileUri, {
@@ -336,7 +351,7 @@ export async function shareFile(fileUri: string): Promise<void> {
       : fileUri.endsWith('.pdf')
       ? 'application/pdf'
       : undefined,
-    dialogTitle: 'שתף קובץ ייצוא',
+    dialogTitle: isEnglish ? 'Share Export File' : 'שתף קובץ ייצוא',
   });
 }
 

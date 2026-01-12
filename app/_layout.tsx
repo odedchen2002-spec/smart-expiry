@@ -1,28 +1,50 @@
+// Polyfill for crypto.getRandomValues() required by uuid package in React Native
+import 'react-native-get-random-values';
+
+import { OfflineBanner } from '@/components/OfflineBanner';
 import { LanguageOnboarding } from '@/components/onboarding/LanguageOnboarding';
 import { WelcomeExplanationDialog } from '@/components/onboarding/WelcomeExplanationDialog';
+import { SplashScreen } from '@/components/SplashScreen';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
-import { LanguageProvider, useLanguage } from '@/context/LanguageContext';
+import { CacheProvider } from '@/context/CacheContext';
 import { CategoriesProvider } from '@/context/CategoriesContext';
 import { CategoryProductsProvider } from '@/context/CategoryProductsContext';
 import { DatePickerStyleProvider } from '@/context/DatePickerStyleContext';
+import { LanguageProvider, useLanguage } from '@/context/LanguageContext';
+import { QueryProvider } from '@/providers/QueryProvider';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
+import { disconnectIAP, initializeIAP } from '@/lib/iap/iapService';
 import { initPushNotificationsForUser } from '@/lib/notifications/initPushNotifications';
-import { initializeIAP, disconnectIAP } from '@/lib/iap/iapService';
-import { useSupabaseClient } from '@/lib/supabase/useSupabaseClient';
+import { cleanupOfflineQueue, initOfflineQueue } from '@/lib/offline/offlineQueue';
+import { supabase } from '@/lib/supabase/client';
 import { theme } from '@/lib/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
-import Constants from 'expo-constants';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef } from 'react';
-import { Platform, View, AppState } from 'react-native';
-import { ActivityIndicator, PaperProvider } from 'react-native-paper';
+import { AppState, Platform } from 'react-native';
+import { PaperProvider } from 'react-native-paper';
 import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+// Performance timing - app start time (module load)
+const APP_START_TIME = Date.now();
+const PERF_ENABLED = __DEV__;
+const perfLog = (label: string) => {
+  if (!PERF_ENABLED) return;
+  console.log(`[PERF] ${label}: ${Date.now() - APP_START_TIME}ms from app start`);
+};
+
+// Log module load time
+if (PERF_ENABLED) {
+  console.log(`[PERF] _layout.tsx module loaded at ${new Date().toISOString()}`);
+}
+
 const RECOVERY_FLAG_KEY = 'password_recovery_active';
+const RECOVERY_PROCESSED_TIMESTAMP_KEY = 'recovery_processed_timestamp';
+const RECOVERY_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes - don't process same recovery session again within this time
 // Language and RTL are now managed by LanguageProvider
 // It will load the saved language from AsyncStorage and apply layout direction accordingly
 
@@ -99,7 +121,7 @@ function PushNotificationRegistration() {
 
           console.log('[Push] Initializing push notifications for user:', user.id);
           const result = await initPushNotificationsForUser(user.id, activeOwnerId ?? null);
-          
+
           if (result.ok) {
             console.log('[Push] Successfully initialized push notifications');
           } else {
@@ -130,6 +152,64 @@ function PushNotificationRegistration() {
   return null;
 }
 
+// Component to enforce plan limits on app startup
+// Ensures items are locked/unlocked according to subscription tier
+function PlanLimitEnforcement() {
+  const { user, status, loading: authLoading } = useAuth();
+  const { activeOwnerId, loading: ownerLoading } = useActiveOwner();
+  const didEnforceRef = useRef(false);
+
+  useEffect(() => {
+    // Only run when:
+    // 1. Auth is not loading
+    // 2. User exists and is authenticated
+    // 3. ActiveOwnerId is available
+    // 4. We haven't already enforced for this session
+    if (authLoading || ownerLoading || !user || status !== 'authenticated' || !activeOwnerId || didEnforceRef.current) {
+      return;
+    }
+
+    // Mark as enforced
+    didEnforceRef.current = true;
+
+    // Delay to ensure all data is loaded
+    const timeoutId = setTimeout(async () => {
+      try {
+        console.log('[PlanLimit] Enforcing plan limits on app startup for owner:', activeOwnerId);
+        const { enforcePlanLimitAfterCreate } = await import('@/lib/supabase/mutations/enforcePlanLimits');
+        await enforcePlanLimitAfterCreate(activeOwnerId);
+        console.log('[PlanLimit] Plan limits enforced successfully');
+
+        // Notify all screens to refresh their data (this will show locked items)
+        console.log('[PlanLimit] Triggering UI refresh...');
+        const { itemEvents } = await import('@/lib/events/itemEvents');
+        itemEvents.emit();
+        
+        // Also invalidate cache to force fresh data fetch
+        await import('@react-native-async-storage/async-storage').then(({ default: AsyncStorage }) => {
+          // Set a flag that will trigger cache invalidation
+          AsyncStorage.setItem('plan_limits_changed', Date.now().toString());
+        });
+      } catch (error) {
+        console.error('[PlanLimit] Error enforcing plan limits (non-critical):', error);
+      }
+    }, 2000); // 2 second delay to ensure everything is loaded
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [user, status, authLoading, activeOwnerId, ownerLoading]);
+
+  // Reset ref when user changes
+  useEffect(() => {
+    if (!user) {
+      didEnforceRef.current = false;
+    }
+  }, [user]);
+
+  return null;
+}
+
 // Component to initialize In-App Purchases
 // Connects to App Store / Play Store and fetches localized pricing
 function IAPInitialization() {
@@ -150,6 +230,9 @@ function IAPInitialization() {
       console.warn('[IAP] Initialization error:', error);
     });
 
+    // Initialize offline queue for background sync
+    initOfflineQueue();
+
     // Clean up IAP connection when app is terminated
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       if (nextAppState === 'background' || nextAppState === 'inactive') {
@@ -161,6 +244,7 @@ function IAPInitialization() {
     return () => {
       subscription.remove();
       disconnectIAP();
+      cleanupOfflineQueue();
     };
   }, []);
 
@@ -169,18 +253,25 @@ function IAPInitialization() {
 
 function AppContent() {
   const { languageReady, hasLanguageChoice } = useLanguage();
+  const didLogRef = useRef(false);
+
+  // Log when language is ready
+  useEffect(() => {
+    if (languageReady && !didLogRef.current) {
+      didLogRef.current = true;
+      perfLog('Language ready, navigation starting');
+    }
+  }, [languageReady]);
 
   if (!languageReady) {
     // Don't render navigation until we know the language state
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8F9FA' }}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
+    // Show splash screen - now with fast/minimal animations
+    return <SplashScreen />;
   }
 
   if (!hasLanguageChoice) {
     // First run – force language selection before showing auth/tabs
+    perfLog('Showing language onboarding (first run)');
     return <LanguageOnboarding />;
   }
 
@@ -188,10 +279,14 @@ function AppContent() {
     <>
       {/* Push notification registration - runs after auth is fully settled */}
       <PushNotificationRegistration />
+      {/* Plan limit enforcement - ensures items are locked/unlocked on app startup */}
+      <PlanLimitEnforcement />
       {/* Initialize IAP and fetch localized pricing from App Store / Play Store */}
       <IAPInitialization />
       {/* Welcome explanation dialog - shows once on first app open after signup */}
       <WelcomeExplanationDialog />
+      {/* Offline banner - shows when device is offline */}
+      <OfflineBanner />
       <Stack
         screenOptions={{
           headerShown: false,
@@ -200,9 +295,7 @@ function AppContent() {
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="(paywall)" />
-        <Stack.Screen name="scan" />
         <Stack.Screen name="add" />
-        <Stack.Screen name="categories" />
         <Stack.Screen name="item" />
         <Stack.Screen name="settings" />
         <Stack.Screen name="settings/notifications" />
@@ -215,6 +308,7 @@ function AppContent() {
 }
 
 export default function RootLayout() {
+  const router = useRouter();
   const notificationListener = useRef<Notifications.Subscription | undefined>(undefined);
   const responseListener = useRef<Notifications.Subscription | undefined>(undefined);
   const deepLinkListener = useRef<{ remove: () => void } | null>(null);
@@ -324,10 +418,85 @@ export default function RootLayout() {
         // Check if this is a recovery URL
         // Recovery URLs typically have type='recovery' or contain access_token/refresh_token in the fragment
         const isRecovery = type === 'recovery' || (accessToken && refreshToken && url.includes('reset-password'));
-        
+
         if (isRecovery && Platform.OS !== 'web') {
-          // Set flag to indicate we're processing a recovery URL
-          await AsyncStorage.setItem(RECOVERY_FLAG_KEY, 'true');
+          console.log('[DeepLink] Detected recovery URL, checking if should process...');
+          console.log('[DeepLink] Incoming URL (first 100 chars):', url.substring(0, 100));
+          
+          // Check if we've recently processed a recovery URL (within the last 5 minutes)
+          // This is better than comparing URLs because tokens change between attempts
+          const lastProcessedTimestamp = await AsyncStorage.getItem(RECOVERY_PROCESSED_TIMESTAMP_KEY);
+          const now = Date.now();
+          
+          if (lastProcessedTimestamp) {
+            const timeSinceLastRecovery = now - parseInt(lastProcessedTimestamp);
+            console.log('[DeepLink] Last recovery was', Math.round(timeSinceLastRecovery / 1000), 'seconds ago');
+
+            if (timeSinceLastRecovery < RECOVERY_COOLDOWN_MS) {
+              // Check if user has a valid session - if so, this is definitely a stale recovery
+              const { data: { session: currentSession } } = await supabase.auth.getSession();
+              const { data: { user: currentUser } } = await supabase.auth.getUser();
+              
+              // CRITICAL: Only redirect if user is truly authenticated with BOTH session AND user
+              // This prevents logout flow from being interrupted by stale deep links
+              // During logout, session might still exist briefly but user is already cleared
+              if (currentSession && currentUser) {
+                console.log('[DeepLink] ✅ Recovery already processed recently AND user has session + user, skipping');
+                console.log('[DeepLink] Not processing recovery URL - user stays authenticated');
+                // Navigate to home to prevent expo-router from navigating to reset-password
+                router.replace('/(tabs)/home');
+                return;
+              } else {
+                console.log('[DeepLink] ✅ Recovery already processed but no session/user (logout?), allowing re-process');
+              }
+            } else {
+              console.log('[DeepLink] Recovery cooldown expired, this is a new recovery attempt');
+            }
+          } else {
+            console.log('[DeepLink] No recent recovery found in storage');
+          }
+          
+          // CRITICAL: Determine if this is a stale recovery URL or a new legitimate one
+          const { data: { session: currentSession } } = await supabase.auth.getSession();
+          console.log('[DeepLink] Current session exists:', !!currentSession);
+          
+          // Check if recovery flag exists and is recent
+          const recoveryFlagValue = await AsyncStorage.getItem(RECOVERY_FLAG_KEY);
+          const isRecentRecovery = recoveryFlagValue && !isNaN(parseInt(recoveryFlagValue)) 
+            && (Date.now() - parseInt(recoveryFlagValue)) < 30000;
+          console.log('[DeepLink] Recent recovery flag exists:', isRecentRecovery);
+          
+          // Determine if this recovery URL is stale (from a previous recovery that's already done)
+          // A recovery URL is stale if:
+          // 1. User has a current session AND
+          // 2. No recent recovery flag exists (meaning not in active recovery) AND
+          // 3. The access_token in URL matches the current session (same session = stale)
+          const tokensMatchCurrentSession = currentSession && accessToken && 
+                                          currentSession.access_token === accessToken;
+          
+          if (currentSession && !isRecentRecovery && tokensMatchCurrentSession) {
+            // This is a stale recovery URL - user already completed recovery and logged in
+            console.log('[DeepLink] Stale recovery URL (tokens match current session), ignoring');
+            // Mark this recovery as processed so we don't process it again
+            await AsyncStorage.setItem(RECOVERY_PROCESSED_TIMESTAMP_KEY, now.toString());
+            return;
+          }
+          
+          // If we reach here, it's either:
+          // 1. A NEW recovery URL (different from stored) - should process
+          // 2. An active recovery (recent flag exists) - should process
+          // 3. No current session - should process
+          console.log('[DeepLink] Processing recovery URL (new or active recovery)');
+
+          // Set flag with timestamp to indicate we're processing a recovery URL
+          // AuthContext will only respect this flag if it's recent (within 30 seconds)
+          const timestamp = Date.now().toString();
+          await AsyncStorage.setItem(RECOVERY_FLAG_KEY, timestamp);
+          
+          // Mark this recovery session as processed with timestamp
+          await AsyncStorage.setItem(RECOVERY_PROCESSED_TIMESTAMP_KEY, timestamp);
+          console.log('[DeepLink] Processing recovery URL and marking timestamp');
+          console.log('[DeepLink] This recovery will be blocked for the next', RECOVERY_COOLDOWN_MS / 60000, 'minutes');
         }
 
         if (accessToken && refreshToken) {
@@ -348,7 +517,7 @@ export default function RootLayout() {
         console.error('[DeepLink] handleRecoveryUrl error:', error);
       }
     },
-    []
+    [router]
   );
 
   // Deep link handling for native platforms only
@@ -385,17 +554,21 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <LanguageProvider>
         <AuthProvider>
-          <DatePickerStyleProvider>
-            <CategoriesProvider>
-              <CategoryProductsProvider>
-                <PaperProvider theme={theme}>
-                  <StatusBar style="auto" />
-                  <AppContent />
-                </PaperProvider>
-              </CategoryProductsProvider>
-            </CategoriesProvider>
-          </DatePickerStyleProvider>
-        </AuthProvider>
+          <QueryProvider>
+        <CacheProvider>
+            <DatePickerStyleProvider>
+              <CategoriesProvider>
+                <CategoryProductsProvider>
+                  <PaperProvider theme={theme}>
+                    <StatusBar style="auto" />
+                    <AppContent />
+                  </PaperProvider>
+                </CategoryProductsProvider>
+              </CategoriesProvider>
+            </DatePickerStyleProvider>
+            </CacheProvider>
+          </QueryProvider>
+          </AuthProvider>
       </LanguageProvider>
     </SafeAreaProvider>
   );

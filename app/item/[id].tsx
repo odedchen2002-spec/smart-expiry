@@ -3,7 +3,7 @@
  * Shows detailed information about an item with edit, delete, and category change options
  */
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, Alert } from 'react-native';
 import {
   Appbar,
@@ -11,22 +11,15 @@ import {
   Button,
   Card,
   Chip,
-  Divider,
-  Portal,
-  Dialog,
-  List,
   ActivityIndicator,
   Snackbar,
-  TextInput,
 } from 'react-native-paper';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { format, differenceInCalendarDays } from 'date-fns';
 import { useLanguage } from '@/context/LanguageContext';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
 import { getItemById } from '@/lib/supabase/queries/items';
 import { deleteItem } from '@/lib/supabase/mutations/items';
-import { getCategories, getDefaultCategory, updateProductCategory } from '@/lib/supabase/queries/categories';
-import { supabase } from '@/lib/supabase/client';
 import { STATUS_COLORS, THEME_COLORS } from '@/lib/constants/colors';
 import { getRtlTextStyles, getRtlContainerStyles, getRTLMargin } from '@/lib/utils/rtlStyles';
 import { isRTL } from '@/i18n';
@@ -87,89 +80,34 @@ export default function ItemDetailsScreen() {
   const [loading, setLoading] = useState(false); // Start with false since we have initial data
   const [loadingAdditional, setLoadingAdditional] = useState(false); // For background fetch
   const [deleting, setDeleting] = useState(false);
-  const [showCategoryDialog, setShowCategoryDialog] = useState(false);
-  const [showAddCategoryDialog, setShowAddCategoryDialog] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState('');
-  const [creatingCategory, setCreatingCategory] = useState(false);
-  const [categories, setCategories] = useState<string[]>([]);
-  const [changingCategory, setChangingCategory] = useState(false);
   const [snack, setSnack] = useState<string | null>(null);
 
   // Track if we have initial data from params
   const hasInitialData = useRef(!!(params?.productName || params?.expiryDate));
 
-  // Background fetch for any additional fields not in route params
-  useEffect(() => {
-    if (!itemId || !activeOwnerId) return;
+  // Refresh when screen comes into focus (e.g., after editing)
+  useFocusEffect(
+    useCallback(() => {
+      if (!itemId || !activeOwnerId) return;
 
-    // If we already have item data from params, fetch additional data in background
-    // Otherwise, do a full fetch
-    const loadItem = async () => {
-      try {
-        if (hasInitialData.current) {
-          // We have initial data, fetch additional fields in background
-          setLoadingAdditional(true);
-        } else {
-          // No initial data, do full fetch (fallback)
-          setLoading(true);
-        }
-        
-        const itemData = await getItemById(itemId, activeOwnerId);
-        
-        // Merge with existing data if we had initial data from params
-        if (hasInitialData.current) {
-          setItem((prevItem) => {
-            if (!prevItem) return itemData;
-            return {
-              ...prevItem,
-              ...itemData,
-              // Preserve any fields that might be more up-to-date in params
-              product_name: itemData.product_name || prevItem.product_name,
-              expiry_date: itemData.expiry_date || prevItem.expiry_date,
-              status: itemData.status || prevItem.status,
-              product_category: itemData.product_category || prevItem.product_category,
-              barcode_snapshot: itemData.barcode_snapshot || prevItem.barcode_snapshot,
-              product_barcode: itemData.product_barcode || prevItem.product_barcode,
-              is_plan_locked: itemData.is_plan_locked ?? prevItem.is_plan_locked,
-              product_id: itemData.product_id || prevItem.product_id,
-            };
+      console.log('[ItemDetails] Screen focused - refreshing item data');
+      
+      // Refresh silently without showing loading spinner
+      (async () => {
+        try {
+          const itemData = await getItemById(itemId, activeOwnerId);
+          console.log('[ItemDetails] Fresh data loaded:', { 
+            id: itemData.id, 
+            name: itemData.product_name,
+            expiry: itemData.expiry_date 
           });
-        } else {
           setItem(itemData);
+        } catch (error) {
+          console.error('[ItemDetails] Error refreshing item:', error);
         }
-      } catch (error) {
-        console.error('Error loading item:', error);
-        // Only show error if we don't have initial data
-        if (!hasInitialData.current) {
-          Alert.alert(
-            t('common.error') || 'שגיאה',
-            t('item.loadError') || 'לא ניתן לטעון את המוצר'
-          );
-          router.back();
-        }
-      } finally {
-        setLoading(false);
-        setLoadingAdditional(false);
-      }
-    };
-
-    loadItem();
-  }, [itemId, activeOwnerId]);
-
-  const loadCategories = async () => {
-    if (!activeOwnerId) return;
-
-    try {
-      const cats = await getCategories(activeOwnerId);
-      setCategories(cats);
-    } catch (error) {
-      console.error('Error loading categories:', error);
-    }
-  };
-
-  useEffect(() => {
-    loadCategories();
-  }, [activeOwnerId]);
+      })();
+    }, [itemId, activeOwnerId])
+  );
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -207,6 +145,43 @@ export default function ItemDetailsScreen() {
       return 0;
     }
   }, [item?.expiry_date]);
+
+  // Calculate actual status based on expiry date (not from database)
+  const calculatedStatus = useMemo((): 'ok' | 'soon' | 'expired' | 'resolved' => {
+    if (!item) return 'ok';
+    
+    // If item is resolved, keep it resolved
+    if (item.status === 'resolved') {
+      return 'resolved';
+    }
+
+    if (!item.expiry_date) {
+      return 'ok';
+    }
+
+    try {
+      const expiry = new Date(item.expiry_date);
+      expiry.setHours(0, 0, 0, 0);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const diff = differenceInCalendarDays(expiry, today);
+
+      // Expired: past date
+      if (diff < 0) {
+        return 'expired';
+      }
+
+      // Soon: within 7 days (including today)
+      if (diff <= 7) {
+        return 'soon';
+      }
+
+      // Ok: more than 7 days away
+      return 'ok';
+    } catch {
+      return 'ok';
+    }
+  }, [item?.expiry_date, item?.status]);
 
   const handleEdit = () => {
     if (!item) return;
@@ -262,95 +237,11 @@ export default function ItemDetailsScreen() {
     );
   };
 
-  const handleChangeCategory = async (newCategory: string | null) => {
-    if (!item?.product_id || !activeOwnerId) return;
-
-    try {
-      setChangingCategory(true);
-      await updateProductCategory(item.product_id, newCategory);
-      
-      // Reload item to get updated category
-      const updatedItem = await getItemById(itemId!, activeOwnerId);
-      setItem(updatedItem);
-      
-      setShowCategoryDialog(false);
-      setSnack(t('item.categoryUpdated') || 'קטגוריה עודכנה בהצלחה');
-    } catch (error: any) {
-      Alert.alert(
-        t('common.error') || 'שגיאה',
-        error?.message || t('item.categoryUpdateError') || 'לא ניתן לעדכן קטגוריה'
-      );
-    } finally {
-      setChangingCategory(false);
-    }
-  };
-
-  const handleAddCategory = () => {
-    setNewCategoryName('');
-    setShowAddCategoryDialog(true);
-  };
-
-  const handleSaveNewCategory = async () => {
-    if (!activeOwnerId || !newCategoryName.trim()) {
-      Alert.alert(
-        t('common.error') || 'שגיאה',
-        t('categories.nameRequired') || 'אנא הזן שם קטגוריה'
-      );
-      return;
-    }
-
-    try {
-      setCreatingCategory(true);
-      const categoryNameTrimmed = newCategoryName.trim();
-      
-      // Check if category already exists
-      const existingCategories = await getCategories(activeOwnerId);
-      if (existingCategories.includes(categoryNameTrimmed)) {
-        Alert.alert(
-          t('common.error') || 'שגיאה',
-          t('categories.alreadyExists') || 'קטגוריה זו כבר קיימת'
-        );
-        return;
-      }
-      
-      // Create a placeholder product with this category
-      const placeholderName = `__CATEGORY_PLACEHOLDER_${categoryNameTrimmed}__`;
-      
-      const { error: createError } = await supabase
-        .from('products')
-        .insert({
-          owner_id: activeOwnerId,
-          name: placeholderName,
-          category: categoryNameTrimmed,
-          barcode: null,
-        } as any);
-      
-      if (createError) {
-        console.error('Error creating category placeholder:', createError);
-        throw createError;
-      }
-      
-      // Refresh categories list
-      await loadCategories();
-      
-      setShowAddCategoryDialog(false);
-      setNewCategoryName('');
-      setSnack(t('categories.categoryCreated') || 'קטגוריה נוצרה בהצלחה');
-    } catch (error: any) {
-      Alert.alert(
-        t('common.error') || 'שגיאה',
-        error?.message || t('categories.saveError') || 'לא ניתן לשמור קטגוריה'
-      );
-    } finally {
-      setCreatingCategory(false);
-    }
-  };
-
   // Only show full-screen loader if we have no data at all
   if (loading && !item) {
     return (
       <View style={styles.container}>
-        <Appbar.Header>
+        <Appbar.Header style={{ backgroundColor: '#F5F5F5' }}>
           <Appbar.BackAction onPress={() => router.back()} />
           <Appbar.Content title={t('item.details') || 'פרטי מוצר'} />
         </Appbar.Header>
@@ -365,7 +256,7 @@ export default function ItemDetailsScreen() {
   if (!item) {
     return (
       <View style={styles.container}>
-        <Appbar.Header>
+        <Appbar.Header style={{ backgroundColor: '#F5F5F5' }}>
           <Appbar.BackAction onPress={() => router.back()} />
           <Appbar.Content title={t('item.details') || 'פרטי מוצר'} />
         </Appbar.Header>
@@ -392,14 +283,14 @@ export default function ItemDetailsScreen() {
         <Card style={styles.headerCard} elevation={0}>
           <Card.Content style={styles.headerCardContent}>
             <View style={styles.headerIconContainer}>
-              {item.status === 'expired' ? (
-                <View style={[styles.statusIconContainer, { backgroundColor: getStatusColor(item.status) + '15' }]}>
-                  <View style={[styles.statusDot, { backgroundColor: getStatusColor(item.status) }]} />
+              {calculatedStatus === 'expired' ? (
+                <View style={[styles.statusIconContainer, { backgroundColor: getStatusColor(calculatedStatus) + '15' }]}>
+                  <View style={[styles.statusDot, { backgroundColor: getStatusColor(calculatedStatus) }]} />
                 </View>
               ) : (
                 <View style={styles.daysRemainingWrapper}>
-                  <View style={[styles.statusIconContainer, { backgroundColor: getStatusColor(item.status) + '15' }]}>
-                    <Text style={[styles.daysRemainingText, rtlTextDate, { color: getStatusColor(item.status) }]}>
+                  <View style={[styles.statusIconContainer, { backgroundColor: getStatusColor(calculatedStatus) + '15' }]}>
+                    <Text style={[styles.daysRemainingText, rtlTextDate, { color: getStatusColor(calculatedStatus) }]}>
                       {daysRemaining < 0 ? `-${Math.abs(daysRemaining)}` : daysRemaining}
                     </Text>
                   </View>
@@ -415,11 +306,11 @@ export default function ItemDetailsScreen() {
             <View style={styles.statusChipContainer}>
               <Chip
                 mode="flat"
-                style={[styles.statusChipHeader, { backgroundColor: getStatusColor(item.status) + '20' }]}
-                textStyle={[styles.statusChipText, { color: getStatusColor(item.status) }]}
+                style={[styles.statusChipHeader, { backgroundColor: getStatusColor(calculatedStatus) + '20' }]}
+                textStyle={[styles.statusChipText, { color: getStatusColor(calculatedStatus) }]}
                 compact
               >
-                {t(`status.${item.status}`) || item.status}
+                {t(`status.${calculatedStatus}`) || calculatedStatus}
               </Chip>
             </View>
           </Card.Content>
@@ -459,40 +350,6 @@ export default function ItemDetailsScreen() {
                 <Text variant="bodyLarge" style={[styles.value, rtlTextDate]}>
                   {formatDate(item.expiry_date)}
                 </Text>
-              </View>
-            </View>
-
-            <View style={styles.detailDivider} />
-
-            <View style={styles.detailRow}>
-              <View style={[styles.detailIconContainer, { backgroundColor: '#4CAF50' + '10' }]}>
-                <MaterialCommunityIcons name="folder" size={20} color="#4CAF50" />
-              </View>
-              <View style={styles.detailContent}>
-                <Text variant="labelSmall" style={[styles.label, rtlText]}>
-                  {t('item.category') || 'קטגוריה'}
-                </Text>
-                <View style={styles.categoryRow}>
-                  <Chip 
-                    icon="folder" 
-                    style={styles.categoryChip}
-                    textStyle={styles.categoryChipText}
-                  >
-                    {item.product_category || t('categories.uncategorized') || getDefaultCategory()}
-                  </Chip>
-                  {!isViewer && !item.is_plan_locked && (
-                    <Button
-                      mode="text"
-                      compact
-                      onPress={() => setShowCategoryDialog(true)}
-                      icon="pencil"
-                      textColor={THEME_COLORS.primary}
-                      labelStyle={styles.changeCategoryLabel}
-                    >
-                      {t('item.changeCategory') || 'שנה'}
-                    </Button>
-                  )}
-                </View>
               </View>
             </View>
 
@@ -572,125 +429,6 @@ export default function ItemDetailsScreen() {
       <Snackbar visible={!!snack} onDismiss={() => setSnack(null)} duration={3000}>
         {snack || ''}
       </Snackbar>
-
-      <Portal>
-        <Dialog 
-          visible={showCategoryDialog} 
-          onDismiss={() => setShowCategoryDialog(false)}
-          style={styles.dialog}
-        >
-          <Dialog.Title style={[styles.dialogTitle, rtlText]}>
-            {t('item.changeCategory') || 'שנה קטגוריה'}
-          </Dialog.Title>
-          <Dialog.Content style={styles.dialogContent}>
-            <List.Section>
-              <List.Item
-                title={t('categories.defaultCategory') || 'קטגוריה ברירת מחדל'}
-                description={t('categories.uncategorized') || getDefaultCategory()}
-                {...(isRTL 
-                  ? { right: (props: any) => <List.Icon {...props} icon="folder-outline" /> }
-                  : { left: (props: any) => <List.Icon {...props} icon="folder-outline" /> }
-                )}
-                onPress={() => !isViewer && handleChangeCategory(null)}
-                style={!item.product_category ? styles.selectedItem : undefined}
-                disabled={changingCategory || isViewer}
-                titleStyle={[styles.dialogItemTitle, rtlText]}
-                descriptionStyle={[styles.dialogItemDescription, rtlText]}
-              />
-              {categories.map((category) => (
-                <List.Item
-                  key={category}
-                  title={category}
-                  {...(isRTL 
-                    ? { right: (props: any) => <List.Icon {...props} icon="folder" /> }
-                    : { left: (props: any) => <List.Icon {...props} icon="folder" /> }
-                  )}
-                  onPress={() => !isViewer && handleChangeCategory(category)}
-                  style={item.product_category === category ? styles.selectedItem : undefined}
-                  disabled={changingCategory || isViewer}
-                  titleStyle={[styles.dialogItemTitle, rtlText]}
-                />
-              ))}
-              {categories.length === 0 && (
-                <Text variant="bodySmall" style={[styles.emptyCategoriesText, rtlText]}>
-                  {t('add.noCategories') || 'אין קטגוריות. המוצר יועבר לקטגוריה ברירת מחדל'}
-                </Text>
-              )}
-            </List.Section>
-          </Dialog.Content>
-          <Dialog.Actions style={[styles.dialogActions, rtlContainer]}>
-            {!isViewer && (
-              <Button 
-                onPress={handleAddCategory}
-                disabled={changingCategory || creatingCategory}
-                style={styles.dialogAddCategoryButton}
-                labelStyle={styles.dialogAddCategoryLabel}
-                icon="plus"
-              >
-                {t('categories.addCategory') || 'הוסף קטגוריה חדשה'}
-              </Button>
-            )}
-            <Button 
-              onPress={() => setShowCategoryDialog(false)} 
-              disabled={changingCategory}
-              style={styles.dialogCancelButton}
-              labelStyle={styles.dialogCancelLabel}
-            >
-              {t('common.cancel') || 'ביטול'}
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-
-        {/* Add Category Dialog */}
-        <Dialog
-          visible={showAddCategoryDialog}
-          onDismiss={() => {
-            setShowAddCategoryDialog(false);
-            setNewCategoryName('');
-          }}
-          style={styles.dialog}
-        >
-          <Dialog.Title style={[styles.dialogTitle, rtlText]}>
-            {t('categories.addCategory') || 'הוסף קטגוריה'}
-          </Dialog.Title>
-          <Dialog.Content>
-            <TextInput
-              label={t('categories.categoryName') || 'שם קטגוריה'}
-              value={newCategoryName}
-              onChangeText={setNewCategoryName}
-              mode="outlined"
-              autoFocus
-              style={styles.dialogInput}
-              contentStyle={rtlText}
-              disabled={creatingCategory}
-            />
-          </Dialog.Content>
-          <Dialog.Actions style={[styles.dialogActions, rtlContainer]}>
-            <Button
-              onPress={() => {
-                setShowAddCategoryDialog(false);
-                setNewCategoryName('');
-              }}
-              disabled={creatingCategory}
-              style={styles.dialogCancelButton}
-              labelStyle={styles.dialogCancelLabel}
-            >
-              {t('common.cancel') || 'ביטול'}
-            </Button>
-            <Button
-              mode="contained"
-              onPress={handleSaveNewCategory}
-              loading={creatingCategory}
-              disabled={creatingCategory || !newCategoryName.trim()}
-              buttonColor={THEME_COLORS.primary}
-              style={styles.dialogSaveButton}
-              labelStyle={styles.dialogSaveLabel}
-            >
-              {t('common.save') || 'שמור'}
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
     </View>
   );
 }

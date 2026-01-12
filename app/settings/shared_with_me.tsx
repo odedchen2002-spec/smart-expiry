@@ -139,9 +139,20 @@ export default function SharedWithMeScreen() {
     try {
       await setActiveOwnerId(ownerId);
       await refreshOwner();
+
+      // Show message that app needs to refresh
       Alert.alert(
         t('common.success') || 'הצלחה',
-        t('sharedWithMe.ownerSwitched') || 'עברת לעבוד על הנתונים של הבעלים הזה.'
+        t('sharedWithMe.needsRefresh') || 'עברת לחשבון אחר. האפליקציה תתרענן כדי לטעון את הנתונים החדשים.',
+        [
+          {
+            text: t('common.ok') || 'אישור',
+            onPress: () => {
+              // Reload the app by navigating to root and forcing refresh
+              router.replace('/');
+            },
+          },
+        ]
       );
     } catch (error) {
       console.error('Error switching owner:', error);
@@ -372,12 +383,12 @@ export default function SharedWithMeScreen() {
 
   return (
     <View style={styles.container}>
-      <Appbar.Header>
+      <Appbar.Header style={{ backgroundColor: '#F5F5F5' }}>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title={t('sharedWithMe.title') || 'שיתופים אליי'} />
       </Appbar.Header>
 
-      <ScrollView 
+      <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
@@ -467,299 +478,299 @@ export default function SharedWithMeScreen() {
 
 function createStyles(isRTL: boolean) {
   return StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8F9FA',
-  },
-  content: {
-    padding: 16,
-    paddingBottom: 24,
-  },
-  sectionCard: {
-    marginBottom: 16,
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  sectionCardContent: {
-    paddingVertical: 20,
-    paddingHorizontal: 20,
-  },
-  sectionHeader: {
-    flexDirection: isRTL ? 'row-reverse' : 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-    gap: 12,
-  },
-  sectionIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: `${THEME_COLORS.primary}15`,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#212121',
-    letterSpacing: 0.2,
-  },
-  invitationsList: {
-    gap: 12,
-  },
-  invitationCard: {
-    borderRadius: 12,
-    backgroundColor: '#FAFAFA',
-    borderWidth: 1,
-    borderColor: '#F0F0F0',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 1,
-      },
-    }),
-  },
-  invitationCardContent: {
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-  },
-  invitationHeader: {
-    flexDirection: isRTL ? 'row-reverse' : 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-    gap: 12,
-  },
-  invitationIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: `${THEME_COLORS.primary}15`,
-    justifyContent: 'center',
-    alignItems: 'center',
-    flexShrink: 0,
-  },
-  invitationInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-  invitationName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#212121',
-    marginBottom: 8,
-  },
-  invitationMeta: {
-    flexDirection: isRTL ? 'row-reverse' : 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  invitationRoleChip: {
-    height: 24,
-    paddingHorizontal: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  invitationRoleChipText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: THEME_COLORS.primary,
-    textAlign: 'center',
-    textAlignVertical: 'center',
-    includeFontPadding: false,
-    lineHeight: 23,
-    paddingVertical: 0,
-    marginTop: -1,
-  },
-  invitationStatusChip: {
-    height: 24,
-    paddingHorizontal: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  invitationStatusChipText: {
-    fontSize: 12,
-    fontWeight: '500',
-    textAlign: 'center',
-    textAlignVertical: 'center',
-    includeFontPadding: false,
-    lineHeight: 23,
-    paddingVertical: 0,
-    marginTop: -1,
-  },
-  statusChipPending: {
-    backgroundColor: '#FFF3E0',
-  },
-  statusChipPendingText: {
-    color: '#F57C00',
-  },
-  roleChipEditor: {
-    backgroundColor: `${THEME_COLORS.primary}20`,
-  },
-  roleChipViewer: {
-    backgroundColor: '#E3F2FD',
-  },
-  invitationActions: {
-    flexDirection: isRTL ? 'row-reverse' : 'row',
-    gap: 10,
-  },
-  invitationActionButton: {
-    flex: 1,
-    borderRadius: 10,
-  },
-  invitationActionButtonContent: {
-    paddingVertical: 4,
-  },
-  invitationActionButtonLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  collaborationsList: {
-    gap: 12,
-  },
-  collaborationCard: {
-    borderRadius: 12,
-    backgroundColor: '#FAFAFA',
-    borderWidth: 1,
-    borderColor: '#F0F0F0',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 1,
-      },
-    }),
-  },
-  activeCollaborationCard: {
-    backgroundColor: `${THEME_COLORS.primary}08`,
-    borderColor: THEME_COLORS.primary,
-    borderWidth: 2,
-  },
-  collaborationCardContent: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-  },
-  collaborationRow: {
-    flexDirection: isRTL ? 'row-reverse' : 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  collaborationIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: `${THEME_COLORS.primary}15`,
-    justifyContent: 'center',
-    alignItems: 'center',
-    flexShrink: 0,
-  },
-  collaborationInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-  collaborationName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#212121',
-    marginBottom: 8,
-  },
-  collaborationMeta: {
-    flexDirection: isRTL ? 'row-reverse' : 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  collaborationRoleChip: {
-    height: 24,
-    paddingHorizontal: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  collaborationRoleChipText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: THEME_COLORS.primary,
-    textAlign: 'center',
-    textAlignVertical: 'center',
-    includeFontPadding: false,
-    lineHeight: 20,
-    paddingTop: 0,
-    paddingBottom: 0,
-    marginTop: 0,
-  },
-  myAccountLabel: {
-    fontSize: 13,
-    color: '#757575',
-    fontWeight: '400',
-  },
-  activeChip: {
-    height: 24,
-    paddingHorizontal: 8,
-    backgroundColor: '#E8F5E9',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  activeChipText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#2E7D32',
-    textAlign: 'center',
-    textAlignVertical: 'center',
-    includeFontPadding: false,
-    lineHeight: 20,
-    paddingTop: 0,
-    paddingBottom: 0,
-    marginTop: 0,
-  },
-  switchButton: {
-    borderRadius: 10,
-    flexShrink: 0,
-  },
-  switchButtonContent: {
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-  },
-  switchButtonLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 40,
-    paddingHorizontal: 20,
-  },
-  emptyStateText: {
-    marginTop: 16,
-    color: '#757575',
-    textAlign: 'center',
-    fontSize: 14,
-  },
-  center: {
-    paddingVertical: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+    container: {
+      flex: 1,
+      backgroundColor: '#F8F9FA',
+    },
+    content: {
+      padding: 16,
+      paddingBottom: 24,
+    },
+    sectionCard: {
+      marginBottom: 16,
+      borderRadius: 16,
+      backgroundColor: '#FFFFFF',
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.08,
+          shadowRadius: 8,
+        },
+        android: {
+          elevation: 2,
+        },
+      }),
+    },
+    sectionCardContent: {
+      paddingVertical: 20,
+      paddingHorizontal: 20,
+    },
+    sectionHeader: {
+      flexDirection: isRTL ? 'row-reverse' : 'row',
+      alignItems: 'center',
+      marginBottom: 20,
+      gap: 12,
+    },
+    sectionIconContainer: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: `${THEME_COLORS.primary}15`,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    sectionTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: '#212121',
+      letterSpacing: 0.2,
+    },
+    invitationsList: {
+      gap: 12,
+    },
+    invitationCard: {
+      borderRadius: 12,
+      backgroundColor: '#FAFAFA',
+      borderWidth: 1,
+      borderColor: '#F0F0F0',
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 4,
+        },
+        android: {
+          elevation: 1,
+        },
+      }),
+    },
+    invitationCardContent: {
+      paddingVertical: 16,
+      paddingHorizontal: 16,
+    },
+    invitationHeader: {
+      flexDirection: isRTL ? 'row-reverse' : 'row',
+      alignItems: 'center',
+      marginBottom: 16,
+      gap: 12,
+    },
+    invitationIconContainer: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: `${THEME_COLORS.primary}15`,
+      justifyContent: 'center',
+      alignItems: 'center',
+      flexShrink: 0,
+    },
+    invitationInfo: {
+      flex: 1,
+      minWidth: 0,
+    },
+    invitationName: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: '#212121',
+      marginBottom: 8,
+    },
+    invitationMeta: {
+      flexDirection: isRTL ? 'row-reverse' : 'row',
+      alignItems: 'center',
+      gap: 8,
+      flexWrap: 'wrap',
+    },
+    invitationRoleChip: {
+      height: 24,
+      paddingHorizontal: 8,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    invitationRoleChipText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: THEME_COLORS.primary,
+      textAlign: 'center',
+      textAlignVertical: 'center',
+      includeFontPadding: false,
+      lineHeight: 23,
+      paddingVertical: 0,
+      marginTop: -1,
+    },
+    invitationStatusChip: {
+      height: 24,
+      paddingHorizontal: 8,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    invitationStatusChipText: {
+      fontSize: 12,
+      fontWeight: '500',
+      textAlign: 'center',
+      textAlignVertical: 'center',
+      includeFontPadding: false,
+      lineHeight: 23,
+      paddingVertical: 0,
+      marginTop: -1,
+    },
+    statusChipPending: {
+      backgroundColor: '#FFF3E0',
+    },
+    statusChipPendingText: {
+      color: '#F57C00',
+    },
+    roleChipEditor: {
+      backgroundColor: `${THEME_COLORS.primary}20`,
+    },
+    roleChipViewer: {
+      backgroundColor: '#E3F2FD',
+    },
+    invitationActions: {
+      flexDirection: isRTL ? 'row-reverse' : 'row',
+      gap: 10,
+    },
+    invitationActionButton: {
+      flex: 1,
+      borderRadius: 10,
+    },
+    invitationActionButtonContent: {
+      paddingVertical: 4,
+    },
+    invitationActionButtonLabel: {
+      fontSize: 14,
+      fontWeight: '600',
+    },
+    collaborationsList: {
+      gap: 12,
+    },
+    collaborationCard: {
+      borderRadius: 12,
+      backgroundColor: '#FAFAFA',
+      borderWidth: 1,
+      borderColor: '#F0F0F0',
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 4,
+        },
+        android: {
+          elevation: 1,
+        },
+      }),
+    },
+    activeCollaborationCard: {
+      backgroundColor: `${THEME_COLORS.primary}08`,
+      borderColor: THEME_COLORS.primary,
+      borderWidth: 2,
+    },
+    collaborationCardContent: {
+      paddingVertical: 14,
+      paddingHorizontal: 16,
+    },
+    collaborationRow: {
+      flexDirection: isRTL ? 'row-reverse' : 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    collaborationIconContainer: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: `${THEME_COLORS.primary}15`,
+      justifyContent: 'center',
+      alignItems: 'center',
+      flexShrink: 0,
+    },
+    collaborationInfo: {
+      flex: 1,
+      minWidth: 0,
+    },
+    collaborationName: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: '#212121',
+      marginBottom: 8,
+    },
+    collaborationMeta: {
+      flexDirection: isRTL ? 'row-reverse' : 'row',
+      alignItems: 'center',
+      gap: 8,
+      flexWrap: 'wrap',
+    },
+    collaborationRoleChip: {
+      height: 24,
+      paddingHorizontal: 8,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    collaborationRoleChipText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: THEME_COLORS.primary,
+      textAlign: 'center',
+      textAlignVertical: 'center',
+      includeFontPadding: false,
+      lineHeight: 20,
+      paddingTop: 0,
+      paddingBottom: 0,
+      marginTop: 0,
+    },
+    myAccountLabel: {
+      fontSize: 13,
+      color: '#757575',
+      fontWeight: '400',
+    },
+    activeChip: {
+      height: 24,
+      paddingHorizontal: 8,
+      backgroundColor: '#E8F5E9',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    activeChipText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: '#2E7D32',
+      textAlign: 'center',
+      textAlignVertical: 'center',
+      includeFontPadding: false,
+      lineHeight: 20,
+      paddingTop: 0,
+      paddingBottom: 0,
+      marginTop: 0,
+    },
+    switchButton: {
+      borderRadius: 10,
+      flexShrink: 0,
+    },
+    switchButtonContent: {
+      paddingVertical: 4,
+      paddingHorizontal: 12,
+    },
+    switchButtonLabel: {
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    emptyState: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 40,
+      paddingHorizontal: 20,
+    },
+    emptyStateText: {
+      marginTop: 16,
+      color: '#757575',
+      textAlign: 'center',
+      fontSize: 14,
+    },
+    center: {
+      paddingVertical: 40,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
   });
 }
 

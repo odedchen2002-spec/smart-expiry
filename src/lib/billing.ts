@@ -9,14 +9,18 @@
 
 import { supabase } from './supabase/client';
 
-export type SubscriptionTier = 'free' | 'pro';
+export type SubscriptionTier = 'free' | 'pro' | 'pro_plus';
 
 export type SubscriptionPlan = {
   id: SubscriptionTier;
   label: string;
+  labelEn: string;
   /** Fallback price - actual localized price comes from App Store / Play Store */
   priceMonthly: number;
-  maxItems: number | null; // null = unlimited
+  maxItems: number | null; // null = high volume (fair use)
+  maxAiPagesPerMonth: number | null; // null = high volume (fair use)
+  description: string;
+  descriptionEn: string;
 };
 
 /**
@@ -25,19 +29,40 @@ export type SubscriptionPlan = {
  * NOTE: The priceMonthly values are fallbacks only.
  * Localized pricing is fetched from App Store / Play Store via IAP.
  * Use the useIAP() hook to get the actual localized price string.
+ * 
+ * Pro: For small businesses - 20 AI pages/month, 2000 products
+ * Pro+: For high-volume businesses - fair use limits (minimarkets, supermarkets)
  */
 export const SUBSCRIPTION_PLANS: Record<SubscriptionTier, SubscriptionPlan> = {
   free: {
     id: 'free',
     label: 'חינמי',
+    labelEn: 'Free',
     priceMonthly: 0,
     maxItems: 150,
+    maxAiPagesPerMonth: 5,
+    description: 'מתאים להתחלה',
+    descriptionEn: 'Great for getting started',
   },
   pro: {
     id: 'pro',
-    label: 'פרו',
+    label: 'Pro',
+    labelEn: 'Pro',
     priceMonthly: 29, // Fallback - actual price from store
-    maxItems: null, // unlimited
+    maxItems: 2000,
+    maxAiPagesPerMonth: 20,
+    description: 'מתאים לעסק קטן',
+    descriptionEn: 'For small businesses',
+  },
+  pro_plus: {
+    id: 'pro_plus',
+    label: 'Pro+',
+    labelEn: 'Pro+',
+    priceMonthly: 59, // Fallback - actual price from store
+    maxItems: null, // High volume - fair use
+    maxAiPagesPerMonth: null, // High volume - fair use
+    description: 'לעסקים עם נפח עבודה גבוה',
+    descriptionEn: 'For high-volume businesses',
   },
 };
 
@@ -266,10 +291,20 @@ async function startMockSubscriptionPurchase(
  * Get the maximum number of items allowed for a subscription tier
  * 
  * @param tier - The subscription tier
- * @returns Maximum items (null = unlimited)
+ * @returns Maximum items (null = unlimited/fair use)
  */
 export function getMaxItemsForTier(tier: SubscriptionTier): number | null {
   return SUBSCRIPTION_PLANS[tier]?.maxItems ?? null;
+}
+
+/**
+ * Get the maximum number of AI pages (supplier intake) allowed per month for a tier
+ * 
+ * @param tier - The subscription tier
+ * @returns Maximum pages/month (null = unlimited/fair use)
+ */
+export function getMaxAiPagesForTier(tier: SubscriptionTier): number | null {
+  return SUBSCRIPTION_PLANS[tier]?.maxAiPagesPerMonth ?? null;
 }
 
 /**

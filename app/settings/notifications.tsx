@@ -2,33 +2,31 @@
  * Notifications & Automation Settings Screen
  */
 
-import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, ScrollView, Platform, Alert } from 'react-native';
-import {
-  Appbar,
-  Card,
-  TextInput,
-  Button,
-  HelperText,
-  Text,
-  Switch,
-} from 'react-native-paper';
+import { useAuth } from '@/context/AuthContext';
+import { useLanguage } from '@/context/LanguageContext';
+import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
+import { saveExpoPushToken } from '@/lib/notifications/pushNotifications';
+import { createNotificationHistory } from '@/lib/supabase/queries/notifications';
+import { getNotificationSettingsFromPreferences, saveNotificationSettingsToPreferences } from '@/lib/supabase/queries/userPreferences';
+import { useSupabaseClient } from '@/lib/supabase/useSupabaseClient';
+import { getRtlContainerStyles, getRtlTextStyles } from '@/lib/utils/rtlStyles';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Slider from '@react-native-community/slider';
-import { useRouter, useFocusEffect } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useLanguage } from '@/context/LanguageContext';
-import { useAuth } from '@/context/AuthContext';
-import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
-import { saveNotificationSettingsToPreferences, getNotificationSettingsFromPreferences } from '@/lib/supabase/queries/userPreferences';
-import { deleteExpiredItemsByRetention } from '@/lib/supabase/mutations/items';
-import { getRtlTextStyles, getRtlContainerStyles } from '@/lib/utils/rtlStyles';
-import { saveExpoPushToken } from '@/lib/notifications/pushNotifications';
-import { useSupabaseClient } from '@/lib/supabase/useSupabaseClient';
-import { useTheme } from 'react-native-paper';
-import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
-import { createNotificationHistory } from '@/lib/supabase/queries/notifications';
+import * as Notifications from 'expo-notifications';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
+import { Alert, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  Appbar,
+  Button,
+  Card,
+  HelperText,
+  Switch,
+  Text,
+  useTheme
+} from 'react-native-paper';
 
 export default function NotificationsScreen() {
   const router = useRouter();
@@ -212,20 +210,39 @@ export default function NotificationsScreen() {
     checkPermissions();
   }, [hasLoadedInitialValues]);
 
+  // Round time to nearest 15-minute interval (00, 15, 30, 45)
+  const roundToQuarterHour = (date: Date): Date => {
+    const d = new Date(date);
+    const m = d.getMinutes();
+    const rounded = Math.round(m / 15) * 15; // 0, 15, 30, 45, or 60
+    if (rounded === 60) {
+      d.setHours(d.getHours() + 1);
+      d.setMinutes(0);
+    } else {
+      d.setMinutes(rounded);
+    }
+    d.setSeconds(0);
+    d.setMilliseconds(0);
+    return d;
+  };
+
   const handleTimeChange = (event: any, selectedDate?: Date) => {
+    // Round to nearest 15 minutes (Android doesn't support minuteInterval)
+    const roundedDate = selectedDate ? roundToQuarterHour(selectedDate) : undefined;
+
     if (Platform.OS === 'android') {
       setShowTimePicker(false);
-      if (event.type === 'set' && selectedDate) {
-        const timeString = formatDateToTime(selectedDate);
+      if (event.type === 'set' && roundedDate) {
+        const timeString = formatDateToTime(roundedDate);
         setNotificationTime(timeString);
-        setTimePickerValue(selectedDate);
+        setTimePickerValue(roundedDate);
       }
     } else {
-      // iOS
-      if (selectedDate) {
-        const timeString = formatDateToTime(selectedDate);
+      // iOS - minuteInterval=15 handles this, but we round anyway for safety
+      if (roundedDate) {
+        const timeString = formatDateToTime(roundedDate);
         setNotificationTime(timeString);
-        setTimePickerValue(selectedDate);
+        setTimePickerValue(roundedDate);
       }
       if (event.type === 'dismissed') {
         setShowTimePicker(false);
@@ -317,6 +334,10 @@ export default function NotificationsScreen() {
     if (!validate() || !activeOwnerId) return;
 
     setSaving(true);
+    
+    // Push token to save to user_preferences (needed by Edge Function)
+    let pushTokenForPrefs: string | undefined;
+    
     try {
       // If push is enabled, verify permissions and refresh token if needed
       if (pushEnabled && user) {
@@ -363,6 +384,9 @@ export default function NotificationsScreen() {
             console.warn('[Notifications] Database error saving token (non-critical):', dbError?.message || dbError);
           }
         }
+
+        // Store for user_preferences below
+        pushTokenForPrefs = expoPushToken;
       }
 
       // Save settings to user_preferences (single source of truth)
@@ -374,23 +398,41 @@ export default function NotificationsScreen() {
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         const [hours, minutes] = notificationTime.split(':').map(Number);
         
+        // Always log what we're about to save (for debugging)
+        console.log('[Notifications] About to save settings:', {
+          userId: user.id,
+          notificationTime,
+          parsedHours: hours,
+          parsedMinutes: minutes,
+          daysBefore,
+          pushEnabled,
+          timezone,
+          hasPushToken: !!pushTokenForPrefs,
+        });
+        
         // Validate hour and minute
         if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
           throw new Error('Invalid time format');
         }
 
-        // Save settings to user_preferences (includes notification_time)
+        // Save settings to user_preferences (includes notification_time and push_token)
         const savedPrefs = await saveNotificationSettingsToPreferences(user.id, {
           expiry_notify_enabled: pushEnabled,
           notification_days_before: daysBefore,
           notification_hour: hours,
           notification_minute: minutes,
           timezone: timezone,
+          push_token: pushTokenForPrefs, // Include push token for Edge Function
         });
         
-        if (__DEV__) {
-          console.log(`[Notifications] Saved notification settings to user_preferences for user ${user.id}`);
-        }
+        // Always log success with saved values
+        console.log('[Notifications] Successfully saved settings:', {
+          userId: user.id,
+          notification_hour: hours,
+          notification_minute: minutes,
+          notification_days_before: daysBefore,
+          hasPushToken: !!pushTokenForPrefs,
+        });
       } catch (settingsError: any) {
         console.error('[Notifications] Error saving settings to user_preferences:', settingsError);
         throw new Error('Failed to save notification settings');
@@ -441,7 +483,7 @@ export default function NotificationsScreen() {
 
   return (
     <View style={styles.container}>
-      <Appbar.Header>
+      <Appbar.Header style={{ backgroundColor: '#F5F5F5' }}>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title={t('settings.notificationsAutomation') || 'התראות ואוטומציה'} />
       </Appbar.Header>
@@ -478,7 +520,7 @@ export default function NotificationsScreen() {
                 </HelperText>
               )}
               <HelperText type="info" style={[rtlText, styles.helperText]}>
-                {t('settings.notifications.timeFormat') || 'פורמט: HH:mm (לדוגמה: 09:00)'}
+                {t('settings.notifications.timeFormat') || 'בחר שעה (ברבעי שעה: 00, 15, 30, 45)'}
               </HelperText>
               
               {showTimePicker && (
@@ -488,6 +530,7 @@ export default function NotificationsScreen() {
                   mode="time"
                   is24Hour={true}
                   display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  minuteInterval={15}
                   onChange={handleTimeChange}
                   locale="he_IL"
                   style={Platform.OS === 'ios' ? styles.iosPicker : undefined}

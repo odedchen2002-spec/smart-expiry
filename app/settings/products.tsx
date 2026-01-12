@@ -23,6 +23,7 @@ import { useLanguage } from '@/context/LanguageContext';
 import { useDatePickerStyleContext, DatePickerStyle } from '@/context/DatePickerStyleContext';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
 import { deleteExpiredItemsByRetention } from '@/lib/supabase/mutations/items';
+import { supabase } from '@/lib/supabase/client';
 import { getRtlTextStyles, getRtlContainerStyles } from '@/lib/utils/rtlStyles';
 import { THEME_COLORS } from '@/lib/constants/colors';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -123,6 +124,24 @@ export default function ManageProductsScreen() {
         throw new Error('Failed to save settings to storage');
       }
 
+      // Save retention_days to profiles table for server-side cleanup job
+      try {
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ retention_days: retentionDays })
+          .eq('id', activeOwnerId);
+
+        if (updateError) {
+          console.error('[ManageProducts] Error updating retention_days in profiles:', updateError);
+          // Don't throw - this is not critical for client-side functionality
+        } else {
+          console.log(`[ManageProducts] Updated retention_days in profiles table`);
+        }
+      } catch (dbError) {
+        console.error('[ManageProducts] Exception updating retention_days:', dbError);
+        // Don't block save if DB update fails
+      }
+
       // Mark that we've saved values
       hasEverSavedRef.current = true;
       savedRetentionDaysRef.current = retentionDays;
@@ -176,7 +195,7 @@ export default function ManageProductsScreen() {
 
   return (
     <View style={styles.container}>
-      <Appbar.Header>
+      <Appbar.Header style={{ backgroundColor: '#F5F5F5' }}>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title={t('settings.products.title') || 'ניהול מוצרים'} />
       </Appbar.Header>
@@ -246,33 +265,6 @@ export default function ManageProductsScreen() {
               <HelperText type="info" style={[rtlText, styles.helperText]}>
                 {t('settings.notifications.retentionDescription') || 'מוצרים שפג תוקפם יימחקו אוטומטית לאחר מספר הימים שצוין'}
               </HelperText>
-            </Card.Content>
-          </View>
-        </Card>
-
-        {/* Manage Categories */}
-        <Card style={styles.card}>
-          <View style={styles.cardContentWrapper}>
-            <Card.Content style={styles.cardContent}>
-              <TouchableOpacity
-                onPress={() => router.push('/categories' as any)}
-                activeOpacity={0.7}
-                style={[styles.categoryButton, rtlContainer]}
-              >
-                <View style={styles.categoryButtonContent}>
-                  <Text variant="titleMedium" style={[styles.categoryButtonTitle, rtlText]}>
-                    {t('categories.title') || 'ניהול קטגוריות'}
-                  </Text>
-                  <Text variant="bodySmall" style={[styles.categoryButtonDescription, rtlText]}>
-                    {t('settings.products.manageCategoriesDesc') || 'צור, ערוך ומחק קטגוריות מוצרים'}
-                  </Text>
-                </View>
-                <List.Icon 
-                  icon={isRTL ? "chevron-left" : "chevron-right"} 
-                  iconColor="#757575"
-                  style={styles.categoryButtonIcon}
-                />
-              </TouchableOpacity>
             </Card.Content>
           </View>
         </Card>

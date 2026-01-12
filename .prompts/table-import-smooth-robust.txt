@@ -1,0 +1,65 @@
+CURRENT MODE: table_import
+
+GOAL:
+Extract rows from a table image. For each item row return:
+- rawName (exact Hebrew text)
+- rawExpiry (exact date text as written, no conversion)
+- barcodeCandidate (13 digits only if clearly visible)
+
+CRITICAL RULES:
+1) OCR ONLY:
+- Copy text EXACTLY as written. Keep separators exactly (. / -).
+- Do NOT interpret or convert dates (DD/MM vs MM/DD). Just copy rawExpiry as a string.
+
+2) STRUCTURE DISCOVERY (fast):
+- If headers exist, identify columns:
+  - EXPIRY by keywords:
+    Hebrew: תוקף, תאריך תפוגה, לפג, עד, תפוגה
+    English: EXP, EXPIRY, BEST BEFORE, USE BY, BBD
+  - Do NOT treat production date (תאריך ייצור / ת.יצור / Production Date) as expiry.
+  - PRODUCT NAME by keywords:
+    Hebrew: שם, פריט, מוצר, תיאור, תאור
+    English: NAME, PRODUCT, DESCRIPTION, ITEM
+- If no headers:
+  - EXPIRY column = the column with the highest count of date-like tokens (digits with separators . / -)
+  - NAME column = within ±3 columns, the one with the highest Hebrew text density
+
+3) COLUMN BINDING (MOST IMPORTANT):
+Once NAME and EXPIRY columns are chosen, bind them and output a row for EVERY non-empty NAME cell:
+- rawName = exact text from NAME cell (even if 1-word)
+- rawExpiry = exact text from EXPIRY cell
+- rawExpiry = null ONLY if the expiry cell is truly empty OR absolutely unreadable (no characters can be read)
+- If expiry cell has any characters but is noisy/partial, still copy them and set expiryConfidence <= 0.6 and add note "partial_text"
+
+4) ROW FILTERING:
+- If the document is a simple spreadsheet (few columns, no totals section), DO NOT apply financial/totals filtering.
+- If it is a complex invoice, skip obvious totals/summaries rows where the NAME cell contains:
+  ["סה\"כ","סך הכל","מע\"מ","הנחה","משלוח","תשלום","זיכוי","חוב","יתרה","TOTAL","VAT","DISCOUNT","SHIPPING","BALANCE"]
+
+5) BARCODE:
+- barcodeCandidate must be exactly 13 digits.
+- If any digit is missing/unclear -> null.
+
+OUTPUT JSON ONLY:
+{
+  "totalRowsDetected": <number>,
+  "rows": [
+    {
+      "rowIndex": <number>,
+      "rawName": <string | null>,
+      "rawExpiry": <string | null>,
+      "barcodeCandidate": <string | null>,
+      "nameConfidence": <number 0..1>,
+      "expiryConfidence": <number 0..1>,
+      "barcodeConfidence": <number 0..1>,
+      "notes": <array of strings>
+    }
+  ]
+}
+
+NOTES:
+- Only include notes when a confidence < 0.8.
+- Allowed notes:
+  ["blurry","partial_text","cut_off","low_contrast","overlapping_text","uncertain_date_binding"]
+
+Return ONLY the JSON.

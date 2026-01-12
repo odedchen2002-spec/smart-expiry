@@ -3,12 +3,13 @@
  * Handles 30-day free trial, free plan (150 products), paid plans, and payment status
  */
 
-import { supabase } from '../supabase/client';
+import { getMaxItemsForTier } from '@/lib/billing';
 import { differenceInDays } from 'date-fns';
 import { logSubscription } from '../logging/subscriptionLogger';
+import { supabase } from '../supabase/client';
 
 export type SubscriptionStatus = 'free' | 'active' | 'expired' | 'cancelled' | 'trial';
-export type Plan = 'free' | 'pro';
+export type Plan = 'free' | 'pro' | 'pro_plus' | 'trial';
 
 export interface SubscriptionInfo {
   status: SubscriptionStatus;
@@ -17,14 +18,15 @@ export interface SubscriptionInfo {
   subscriptionEndDate: string | null;
   trialDaysRemaining: number;
   activeItemsCount: number;
-  maxItems: number | null; // null means unlimited
+  maxItems: number | null; // null means unlimited/fair use
   canAddItems: boolean;
   isTrialActive: boolean;
   isPaidActive: boolean;
   totalItemsCount: number; // Total items including hidden ones
 }
 
-const FREE_PLAN_MAX_ITEMS = 150;
+const FREE_PLAN_MAX_ITEMS = getMaxItemsForTier('free') || 150;
+const PRO_PLAN_MAX_ITEMS = getMaxItemsForTier('pro') || 2000;
 const BASIC_PLAN_PRICE_ILS = 50;
 const TRIAL_DAYS = 30;
 
@@ -65,7 +67,7 @@ async function calculateSubscriptionStatus(
 ): Promise<SubscriptionInfo> {
   // Use subscription tier from profile
   let currentPlan: string = (profileSubscriptionTier as string) || 'free';
-  
+
   let subscriptionStatus: string | undefined;
   let subscriptionEndDate: string | undefined = profileSubscriptionValidUntil || undefined;
 
@@ -78,15 +80,15 @@ async function calculateSubscriptionStatus(
       .select('*', { count: 'exact', head: true })
       .eq('owner_id', ownerId)
       .neq('status', 'resolved');
-    
+
     if (totalError) {
-      const isNetworkError = 
+      const isNetworkError =
         totalError.message?.includes('Network request failed') ||
         totalError.message?.includes('fetch failed') ||
         totalError.message?.includes('network');
-      
+
       const isRLSError = totalError.code === '42P17';
-      
+
       if (isNetworkError || isRLSError) {
         console.log('Error counting total items, defaulting to 0');
         totalItemsCount = 0;
@@ -97,7 +99,7 @@ async function calculateSubscriptionStatus(
     } else {
       totalItemsCount = totalCount || 0;
     }
-    
+
     activeItemsCount = totalItemsCount; // For now, same as total
   } catch (error) {
     console.log('Error counting items, defaulting to 0:', (error as Error).message);
@@ -109,7 +111,7 @@ async function calculateSubscriptionStatus(
   const endDate = subscriptionEndDate ? new Date(subscriptionEndDate) : null;
   let isPaidActive = false;
 
-  if (currentPlan === 'pro') {
+  if (currentPlan === 'pro' || currentPlan === 'pro_plus') {
     if (endDate) {
       if (endDate > now) {
         isPaidActive = true;
@@ -119,7 +121,7 @@ async function calculateSubscriptionStatus(
         currentPlan = 'free';
       }
     } else {
-      // No end date provided - assume active pro plan
+      // No end date provided - assume active pro/pro+ plan
       isPaidActive = true;
       subscriptionStatus = 'active';
     }
@@ -131,19 +133,19 @@ async function calculateSubscriptionStatus(
   let isTrialActive = false;
   let trialEndDate: string | null = null;
   let trialDaysRemaining = 0;
-  
-  // Only check for trial if user is NOT on Pro plan
-  // Pro plan should NEVER be treated as "on free trial"
-  if (accountCreatedAt && currentPlan !== 'pro') {
+
+  // Only check for trial if user is NOT on Pro or Pro+ plan
+  // Paid plans should NEVER be treated as "on free trial"
+  if (accountCreatedAt && currentPlan !== 'pro' && currentPlan !== 'pro_plus') {
     const signupDate = new Date(accountCreatedAt);
     signupDate.setHours(0, 0, 0, 0);
     const trialEnd = new Date(signupDate);
     trialEnd.setDate(trialEnd.getDate() + TRIAL_DAYS);
     trialEnd.setHours(23, 59, 59, 999);
-    
+
     const nowDate = new Date();
     nowDate.setHours(0, 0, 0, 0);
-    
+
     if (nowDate <= trialEnd) {
       isTrialActive = true;
       trialEndDate = trialEnd.toISOString();
@@ -161,8 +163,8 @@ async function calculateSubscriptionStatus(
         // to prevent RLS recursion. The plan will be updated on next business query.
       }
     }
-  } else if (currentPlan === 'pro') {
-    logSubscription('[Subscription] Pro plan active - trial check skipped (Pro takes precedence)', {
+  } else if (currentPlan === 'pro' || currentPlan === 'pro_plus') {
+    logSubscription('[Subscription] Paid plan active - trial check skipped (paid plan takes precedence)', {
       ownerId,
       currentPlan,
     });
@@ -173,30 +175,42 @@ async function calculateSubscriptionStatus(
   let maxItems: number | null;
   let canAddItems: boolean;
 
-  // Precedence: Pro > Free Trial > Free
-  // Pro plan takes absolute precedence - if user is Pro, ignore trial status
-  if (plan === 'pro' && isPaidActive) {
-    // Pro plan is active - unlimited access
+  // Precedence: Pro+ > Pro > Free Trial > Free
+  // Paid plans take absolute precedence - if user is on paid plan, ignore trial status
+  if (plan === 'pro_plus' && isPaidActive) {
+    // Pro+ plan is active - unlimited/fair use access
     status = 'active';
-    maxItems = null; // Unlimited
+    maxItems = null; // Unlimited (fair use)
     canAddItems = true;
-    logSubscription('[Subscription] Pro plan active - unlimited access', {
+    logSubscription('[Subscription] Pro+ plan active - unlimited access', {
       ownerId,
       plan,
       isPaidActive,
     });
+  } else if (plan === 'pro' && isPaidActive) {
+    // Pro plan is active - 2000 products limit
+    status = 'active';
+    maxItems = PRO_PLAN_MAX_ITEMS;
+    canAddItems = activeItemsCount < PRO_PLAN_MAX_ITEMS;
+    logSubscription('[Subscription] Pro plan active - 2000 items limit', {
+      ownerId,
+      plan,
+      isPaidActive,
+      activeItemsCount,
+      maxItems,
+    });
   } else if (isTrialActive) {
-    // User is in 30-day free trial (and NOT on Pro) - unlimited access
+    // User is in 30-day free trial (and NOT on paid plan) - unlimited access
     status = 'trial';
     maxItems = null; // Unlimited during trial
     canAddItems = true;
-    logSubscription('[Subscription] Free trial active (not Pro) - unlimited access', {
+    logSubscription('[Subscription] Free trial active (not paid) - unlimited access', {
       ownerId,
       plan,
       trialDaysRemaining,
     });
   } else if (plan === 'free' || !subscriptionStatus) {
-    // Free plan - limited to 100 products
+    // Free plan - limited to 150 products
     status = 'free';
     maxItems = FREE_PLAN_MAX_ITEMS;
     canAddItems = activeItemsCount < FREE_PLAN_MAX_ITEMS;
@@ -246,7 +260,7 @@ export async function canAddItem(
   profileSubscriptionTier?: string | null,
   accountCreatedAt?: string,
   profileSubscriptionValidUntil?: string | null
-): Promise<{ canAdd: boolean; reason?: string }> {
+): Promise<{ canAdd: boolean; reason?: string; plan?: Plan }> {
   const subscription = await checkSubscriptionStatus(
     ownerId,
     profileSubscriptionTier,
@@ -255,12 +269,23 @@ export async function canAddItem(
   );
 
   if (!subscription.canAddItems) {
+    // Pro plan limit reached (2000 items)
+    if (subscription.plan === 'pro' && subscription.isPaidActive && subscription.activeItemsCount >= subscription.maxItems!) {
+      return {
+        canAdd: false,
+        plan: 'pro',
+        reason: `Pro plan limit reached. You can add up to ${subscription.maxItems} items on the Pro plan. Upgrade to Pro+ for unlimited items.`,
+      };
+    }
+    // Free plan limit reached (150 items)
     if (subscription.status === 'free' && subscription.activeItemsCount >= subscription.maxItems!) {
       return {
         canAdd: false,
+        plan: 'free',
         reason: `Free plan limit reached. You can add up to ${subscription.maxItems} items on the free plan. Subscribe to add more.`,
       };
     }
+    // Subscription expired
     if (subscription.status === 'expired') {
       return {
         canAdd: false,
@@ -313,14 +338,18 @@ export const SUBSCRIPTION_CONSTANTS = {
 
 /**
  * Get effective tier considering trial period
- * Precedence: Pro > Free Trial > Free
+ * Precedence: Pro+ > Pro > Free Trial > Free
  */
 export function getEffectiveTier(subscription: SubscriptionInfo): Plan {
-  // Pro plan takes absolute precedence
+  // Pro+ plan takes absolute precedence
+  if (subscription.plan === 'pro_plus' && subscription.isPaidActive) {
+    return 'pro_plus';
+  }
+  // Pro plan
   if (subscription.plan === 'pro' && subscription.isPaidActive) {
     return 'pro';
   }
-  // Free trial (only if NOT Pro)
+  // Free trial (only if NOT paid plan)
   if (subscription.isTrialActive) {
     return 'trial';
   }

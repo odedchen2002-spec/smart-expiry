@@ -9,8 +9,11 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   initializeIAP,
   getProMonthlyProduct,
+  getProPlusMonthlyProduct,
   getProPriceString,
+  getProPlusPriceString,
   purchaseProSubscription,
+  purchaseProPlusSubscription,
   restorePurchases,
   subscribeToIAPState,
   isIAPAvailable,
@@ -27,10 +30,16 @@ interface UseIAPResult {
   error: string | null;
   /** Pro monthly product with localized pricing */
   proProduct: LocalizedProduct | null;
-  /** Formatted price string (e.g., "₪29.00", "$9.99") */
+  /** Pro+ monthly product with localized pricing */
+  proPlusProduct: LocalizedProduct | null;
+  /** Formatted price string for Pro (e.g., "₪29.00", "$9.99") */
   proPriceString: string | null;
+  /** Formatted price string for Pro+ (e.g., "₪59.00", "$19.99") */
+  proPlusPriceString: string | null;
   /** Purchase Pro subscription */
   purchasePro: () => Promise<{ success: boolean; error?: string }>;
+  /** Purchase Pro+ subscription */
+  purchaseProPlus: () => Promise<{ success: boolean; error?: string }>;
   /** Restore previous purchases */
   restore: () => Promise<{ success: boolean; restored: boolean; error?: string }>;
   /** Whether a purchase is in progress */
@@ -65,6 +74,7 @@ export function useIAP(): UseIAPResult {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [proProduct, setProProduct] = useState<LocalizedProduct | null>(null);
+  const [proPlusProduct, setProPlusProduct] = useState<LocalizedProduct | null>(null);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
 
@@ -82,6 +92,7 @@ export function useIAP(): UseIAPResult {
           
           if (success) {
             setProProduct(getProMonthlyProduct());
+            setProPlusProduct(getProPlusMonthlyProduct());
             setError(null);
           }
         }
@@ -104,6 +115,7 @@ export function useIAP(): UseIAPResult {
         
         if (state.isConnected) {
           setProProduct(getProMonthlyProduct());
+          setProPlusProduct(getProPlusMonthlyProduct());
         }
       }
     });
@@ -118,6 +130,16 @@ export function useIAP(): UseIAPResult {
     setIsPurchasing(true);
     try {
       const result = await purchaseProSubscription();
+      return result;
+    } finally {
+      setIsPurchasing(false);
+    }
+  }, []);
+
+  const purchaseProPlus = useCallback(async () => {
+    setIsPurchasing(true);
+    try {
+      const result = await purchaseProPlusSubscription();
       return result;
     } finally {
       setIsPurchasing(false);
@@ -142,6 +164,7 @@ export function useIAP(): UseIAPResult {
       setIsReady(success);
       if (success) {
         setProProduct(getProMonthlyProduct());
+        setProPlusProduct(getProPlusMonthlyProduct());
       }
     } catch (err: any) {
       setError(err.message || 'Failed to initialize IAP');
@@ -155,8 +178,11 @@ export function useIAP(): UseIAPResult {
     isLoading,
     error,
     proProduct,
+    proPlusProduct,
     proPriceString: proProduct?.priceString || null,
+    proPlusPriceString: proPlusProduct?.priceString || null,
     purchasePro,
+    purchaseProPlus,
     restore,
     isPurchasing,
     isRestoring,

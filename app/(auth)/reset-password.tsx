@@ -12,6 +12,12 @@ import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase/client';
 import { useLanguage } from '@/context/LanguageContext';
 import { getRtlTextStyles } from '@/lib/utils/rtlStyles';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Must match the keys in AuthContext and _layout.tsx
+const RECOVERY_FLAG_KEY = 'password_recovery_active';
+const RECOVERY_PROCESSED_TIMESTAMP_KEY = 'recovery_processed_timestamp';
+const RECOVERY_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 
 export default function ResetPasswordScreen() {
   const [password, setPassword] = useState('');
@@ -31,6 +37,33 @@ export default function ResetPasswordScreen() {
   // Note: Recovery URL handling is done at the RootLayout level where deep link events are received
   useEffect(() => {
     const checkRecoverySession = async () => {
+      // CRITICAL: Check if this is a stale recovery attempt
+      // If a recovery was recently processed (within cooldown period) and user already has a valid session,
+      // this is likely a stale deep link that should redirect to home instead
+      try {
+        const lastProcessedTimestamp = await AsyncStorage.getItem(RECOVERY_PROCESSED_TIMESTAMP_KEY);
+        if (lastProcessedTimestamp) {
+          const timeSinceLastRecovery = Date.now() - parseInt(lastProcessedTimestamp);
+          console.log('[ResetPassword] Last recovery was', Math.round(timeSinceLastRecovery / 1000), 'seconds ago');
+          
+          // Check if we're within the cooldown period AND user has a valid session
+          if (timeSinceLastRecovery < RECOVERY_COOLDOWN_MS) {
+            const { data: { session } } = await supabase.auth.getSession();
+            
+            // If user has a valid session but we're in the cooldown period,
+            // this means they already completed password reset and logged in
+            // So we should redirect them to home instead of showing reset screen
+            if (session && !session.user?.user_metadata?.is_recovery) {
+              console.log('[ResetPassword] Stale recovery session detected (within cooldown), redirecting to home');
+              router.replace('/(tabs)/home');
+              return;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[ResetPassword] Failed to check recovery timestamp:', e);
+      }
+
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -94,6 +127,15 @@ export default function ResetPasswordScreen() {
           'הסיסמה עודכנה בהצלחה. אפשר להתחבר מחדש.',
         type: 'success',
       });
+
+      // CRITICAL: Clear recovery flag BEFORE signOut to prevent it from being set again
+      // This ensures the recovery flow is completely terminated
+      try {
+        await AsyncStorage.removeItem(RECOVERY_FLAG_KEY);
+        console.log('[ResetPassword] Cleared recovery flag');
+      } catch (e) {
+        console.warn('[ResetPassword] Failed to clear recovery flag:', e);
+      }
 
       await supabase.auth.signOut();
 

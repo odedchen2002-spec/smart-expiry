@@ -5,87 +5,30 @@
  * See src/lib/supabase/ownerUtils.ts for naming convention documentation.
  */
 
-import { supabase } from '../client';
 import type { Database } from '@/types/database';
+import { supabase } from '../client';
 
 type ItemInsert = Database['public']['Tables']['items']['Insert'];
 type ItemUpdate = Database['public']['Tables']['items']['Update'];
 
-/**
- * Enforce free plan item limit after creating a new item
- * Locks items beyond the first 150 (by created_at ASC)
- */
-async function enforceFreePlanLimitAfterCreate(ownerId: string) {
-  try {
-    // Fetch all items for this owner, ordered by created_at ASC (oldest first)
-    const { data: items, error: itemsError } = await supabase
-      .from('items')
-      .select('id')
-      .eq('owner_id', ownerId)
-      .order('created_at', { ascending: true });
+// Re-export the enforce plan limits function from the new file
+// This ensures all imports continue to work
+export { enforcePlanLimitAfterCreate } from './enforcePlanLimits';
 
-    if (itemsError || !items) {
-      console.error('[createItem] Error fetching items for limit enforcement:', itemsError);
-      return;
-    }
-
-    if (items.length === 0) {
-      return;
-    }
-
-    const FREE_PLAN_LIMIT = 150;
-    
-    // Compute the list of item IDs to keep unlocked (first 150 items)
-    const keepIds = items.slice(0, FREE_PLAN_LIMIT).map((item: any) => item.id);
-    const totalItems = items.length;
-    
-    if (totalItems > FREE_PLAN_LIMIT) {
-      // Lock all items first
-      const { error: lockAllError } = await supabase
-        .from('items')
-        .update({ is_plan_locked: true })
-        .eq('owner_id', ownerId);
-
-      if (lockAllError) {
-        console.error('[createItem] Failed to lock items:', lockAllError);
-        return;
-      }
-
-      // Then unlock the first 150 items
-      if (keepIds.length > 0) {
-        const { error: unlockError } = await supabase
-          .from('items')
-          .update({ is_plan_locked: false })
-          .eq('owner_id', ownerId)
-          .in('id', keepIds);
-
-        if (unlockError) {
-          console.error('[createItem] Failed to unlock kept items:', unlockError);
-        }
-      }
-    } else {
-      // All items fit within the limit, ensure all are unlocked
-      const { error: unlockAllError } = await supabase
-        .from('items')
-        .update({ is_plan_locked: false })
-        .eq('owner_id', ownerId);
-
-      if (unlockAllError) {
-        console.error('[createItem] Failed to unlock all items:', unlockAllError);
-      }
-    }
-  } catch (error) {
-    console.error('[createItem] Exception while enforcing free plan limit:', error);
-  }
-}
 
 /**
  * Create a new item
  */
 export async function createItem(item: ItemInsert) {
+  // Ensure is_plan_locked has a default value of false if not provided
+  const itemWithDefaults = {
+    ...item,
+    is_plan_locked: item.is_plan_locked ?? false,
+  };
+
   const { data, error } = await supabase
     .from('items')
-    .insert(item as any)
+    .insert(itemWithDefaults as any)
     .select()
     .single();
 
@@ -94,12 +37,15 @@ export async function createItem(item: ItemInsert) {
     throw error;
   }
 
-  // After creating the item, enforce free plan limits if needed
+  // After creating the item, enforce plan limits if needed
   // This ensures new items beyond the limit are locked
   if (data && item.owner_id) {
     // Run in background (don't wait for it)
-    enforceFreePlanLimitAfterCreate(item.owner_id).catch((err) => {
-      console.error('[createItem] Error enforcing free plan limit:', err);
+    // Import dynamically to avoid circular dependency
+    import('./enforcePlanLimits').then(({ enforcePlanLimitAfterCreate }) => {
+      enforcePlanLimitAfterCreate(item.owner_id!).catch((err) => {
+        console.error('[createItem] Error enforcing plan limit:', err);
+      });
     });
   }
 
@@ -136,15 +82,17 @@ export async function deleteItem(itemId: string) {
     .from('items')
     .select('product_id, owner_id')
     .eq('id', itemId)
-    .single();
+    .maybeSingle(); // Use maybeSingle to avoid error when item doesn't exist
 
   if (fetchError) {
     console.error('Error fetching item:', fetchError);
     throw fetchError;
   }
 
+  // Item doesn't exist (already deleted or never existed) - return silently
   if (!item) {
-    throw new Error('Item not found');
+    console.log('Item not found (may already be deleted):', itemId);
+    return;
   }
 
   // Delete the item
@@ -286,7 +234,7 @@ export async function deleteAllItems(ownerId: string): Promise<number> {
   }
 
   const itemIds = items.map(item => item.id);
-  
+
   // Delete all items
   const { error: deleteError } = await supabase
     .from('items')
@@ -372,13 +320,13 @@ export async function deleteExpiredItemsByRetention(
     // Fetch product names for event logging
     const productIds = [...new Set(itemsToDelete.map(item => item.product_id).filter(Boolean))];
     let productsMap = new Map<string, string>();
-    
+
     if (productIds.length > 0) {
       const { data: products } = await supabase
         .from('products')
         .select('id, name')
         .in('id', productIds);
-      
+
       if (products) {
         productsMap = new Map(products.map((p: any) => [p.id, p.name]));
       }
@@ -387,7 +335,7 @@ export async function deleteExpiredItemsByRetention(
     // Log EXPIRED_AUTO_ARCHIVED events BEFORE deleting (preserve history)
     try {
       const { logExpiredAutoArchivedBatch } = await import('../services/expiryEventsService');
-      
+
       const eventsToLog = itemsToDelete.map((item: any) => ({
         batchId: item.id,
         barcode: item.barcode_snapshot || undefined,

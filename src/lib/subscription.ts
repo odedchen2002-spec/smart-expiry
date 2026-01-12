@@ -5,9 +5,10 @@
  * Note: For purchasing subscriptions, use startSubscriptionPurchase() from @/lib/billing
  */
 
-import { supabase } from './supabase/client';
 import type { SubscriptionTier } from '@/lib/billing';
 import { getMaxItemsForTier } from '@/lib/billing';
+import { supabase } from './supabase/client';
+import { enforcePlanLimitAfterCreate } from './supabase/mutations/enforcePlanLimits';
 
 export type SubscriptionTierType = SubscriptionTier;
 
@@ -64,6 +65,12 @@ async function checkAndDowngradeExpiredSubscription(userId: string): Promise<boo
           console.error('Error downgrading expired subscription:', updateError);
           return false;
         }
+
+        // Enforce plan limits after downgrade to free
+        // This will lock items beyond the Free limit (150)
+        enforcePlanLimitAfterCreate(userId).catch((err) => {
+          console.error('[checkAndDowngradeExpiredSubscription] Error enforcing plan limit:', err);
+        });
 
         return true;
       }
@@ -176,6 +183,12 @@ export async function upgradeToPro(userId: string): Promise<{ success: boolean; 
       return { success: false, error };
     }
 
+    // Enforce plan limits after subscription change
+    // This will lock items beyond the Pro limit (2000)
+    enforcePlanLimitAfterCreate(userId).catch((err) => {
+      console.error('[upgradeToPro] Error enforcing plan limit:', err);
+    });
+
     return { success: true };
   } catch (error) {
     console.error('Exception upgrading to Pro:', error);
@@ -235,9 +248,36 @@ export async function canUserAddItem(
     }
 
     const effectiveTier = getEffectiveTier(subscription);
-    
-    // Pro tier has unlimited items
+
+    // Pro+ tier has unlimited items (fair use)
+    if (effectiveTier === 'pro_plus') {
+      return { canAdd: true, tier: 'pro_plus' };
+    }
+
+    // Pro tier has 2000 items limit
     if (effectiveTier === 'pro') {
+      const { count, error } = await supabase
+        .from('items')
+        .select('*', { count: 'exact', head: true })
+        .eq('owner_id', ownerId)
+        .neq('status', 'resolved');
+
+      if (error) {
+        console.warn('[Subscription] Error counting items for Pro:', error);
+        return { canAdd: true, tier: 'pro' }; // Fail open
+      }
+
+      const activeItemsCount = count || 0;
+      const PRO_LIMIT = getMaxItemsForTier('pro') || 2000;
+
+      if (activeItemsCount >= PRO_LIMIT) {
+        return {
+          canAdd: false,
+          reason: 'pro_limit',
+          tier: 'pro',
+        };
+      }
+
       return { canAdd: true, tier: 'pro' };
     }
 
@@ -256,10 +296,10 @@ export async function canUserAddItem(
       const trialEnd = new Date(signupDate);
       trialEnd.setDate(trialEnd.getDate() + 30);
       trialEnd.setHours(23, 59, 59, 999);
-      
+
       const nowDate = new Date();
       nowDate.setHours(0, 0, 0, 0);
-      
+
       if (nowDate <= trialEnd) {
         isTrialActive = true;
       }
@@ -317,7 +357,7 @@ export async function canUserAddItem(
     const activeItemsCount = count || 0;
     // Get max items from centralized billing configuration
     const maxItems = getMaxItemsForTier(effectiveTier);
-    
+
     // If maxItems is null (unlimited), allow adding
     if (maxItems === null) {
       return { canAdd: true, tier: effectiveTier };

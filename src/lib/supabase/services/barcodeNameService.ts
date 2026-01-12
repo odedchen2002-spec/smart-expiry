@@ -14,6 +14,31 @@
 
 import { supabase } from '../client';
 
+/**
+ * Check if text contains Arabic characters
+ * Used to filter out Arabic names for Hebrew users
+ */
+function containsArabic(text: string | null | undefined): boolean {
+  if (!text) return false;
+  return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/.test(text);
+}
+
+/**
+ * Check if a name should be rejected based on user's locale
+ * Hebrew users should not see Arabic names
+ */
+function shouldRejectNameForLocale(name: string | null | undefined, locale: string | undefined): boolean {
+  if (!name || !locale) return false;
+  const locLower = locale.toLowerCase();
+  
+  // Hebrew users should not see Arabic names
+  if (locLower.startsWith('he') && containsArabic(name)) {
+    return true;
+  }
+  
+  return false;
+}
+
 export type BarcodeNameSource = 
   | 'store_override' 
   | 'catalog_stub' 
@@ -60,33 +85,46 @@ export async function resolveBarcodeToName(
         .maybeSingle();
 
       if (!overrideError && override?.custom_name) {
-        return {
-          name: override.custom_name,
-          source: 'store_override',
-          confidenceScore: 1.0,
-        };
+        // Skip Arabic names for Hebrew users
+        if (!shouldRejectNameForLocale(override.custom_name, locale)) {
+          return {
+            name: override.custom_name,
+            source: 'store_override',
+            confidenceScore: 1.0,
+          };
+        }
+        // If name is rejected (e.g., Arabic for Hebrew user), continue to next step
+        console.log(`[barcodeNameService] Skipping store override (wrong script for locale): ${override.custom_name}`);
       }
     }
 
     // Step 2: Check barcode_catalog
+    // Each barcode+locale combination is stored separately for multilingual support
     let catalogQuery = supabase
       .from('barcode_catalog')
-      .select('name, source, confidence_score')
+      .select('name, source, confidence_score, locale')
       .eq('barcode', barcode);
 
-    // Filter by locale if provided
+    // Filter by exact locale - no fallback to null locales
     if (locale) {
-      catalogQuery = catalogQuery.or(`locale.is.null,locale.eq.${locale}`);
+      catalogQuery = catalogQuery.eq('locale', locale);
+    } else {
+      // If no locale specified, skip catalog lookup and go straight to Edge Function
+      catalogQuery = catalogQuery.is('locale', null);
     }
 
     const { data: catalogEntry, error: catalogError } = await catalogQuery.maybeSingle();
 
     if (!catalogError && catalogEntry?.name) {
-      return {
-        name: catalogEntry.name,
-        source: `catalog_${catalogEntry.source}` as BarcodeNameSource,
-        confidenceScore: catalogEntry.confidence_score,
-      };
+      // Skip Arabic names for Hebrew users (shouldn't happen with locale filter, but just in case)
+      if (!shouldRejectNameForLocale(catalogEntry.name, locale)) {
+        return {
+          name: catalogEntry.name,
+          source: `catalog_${catalogEntry.source}` as BarcodeNameSource,
+          confidenceScore: catalogEntry.confidence_score,
+        };
+      }
+      console.log(`[barcodeNameService] Skipping catalog entry (wrong script for locale): ${catalogEntry.name}`);
     }
 
     // Step 3: Call Edge Function (stub - returns null)
@@ -99,11 +137,15 @@ export async function resolveBarcodeToName(
     );
 
     if (!edgeError && edgeResult?.name) {
-      return {
-        name: edgeResult.name,
-        source: edgeResult.source || 'api',
-        confidenceScore: edgeResult.confidence_score || null,
-      };
+      // Skip Arabic names for Hebrew users
+      if (!shouldRejectNameForLocale(edgeResult.name, locale)) {
+        return {
+          name: edgeResult.name,
+          source: edgeResult.source || 'api',
+          confidenceScore: edgeResult.confidence_score || null,
+        };
+      }
+      console.log(`[barcodeNameService] Skipping edge result (wrong script for locale): ${edgeResult.name}`);
     }
 
     // No name found
@@ -161,10 +203,13 @@ export async function saveStoreOverride(
  * Submit a barcode name suggestion.
  * These are stored for potential promotion to the global catalog.
  * 
+ * Names are promoted to the global catalog after 10 distinct stores
+ * suggest the same normalized name within the same locale.
+ * 
  * @param barcode - The barcode
  * @param suggestedName - The suggested name
  * @param storeId - The store/owner ID submitting the suggestion
- * @param locale - Optional locale for the suggestion
+ * @param locale - The locale for the suggestion (defaults to 'he' if not provided)
  */
 export async function submitBarcodeSuggestion(
   barcode: string,
@@ -177,17 +222,33 @@ export async function submitBarcodeSuggestion(
     return false;
   }
 
+  // Ensure locale is provided (required for promotion logic)
+  const effectiveLocale = locale || 'he';
+
   try {
     const { error } = await supabase
       .from('barcode_name_suggestions')
-      .insert({
-        barcode,
-        suggested_name: suggestedName,
-        store_id: storeId || null,
-        locale: locale || null,
-      });
+      .upsert(
+        {
+          barcode,
+          suggested_name: suggestedName,
+          store_id: storeId || null,
+          locale: effectiveLocale,
+          // normalized_name is auto-computed by database trigger
+        },
+        {
+          // Upsert to handle duplicate suggestions from same store
+          onConflict: 'store_id,barcode,locale,normalized_name',
+          ignoreDuplicates: true,
+        }
+      );
 
     if (error) {
+      // Ignore unique constraint violations (duplicate suggestions are expected)
+      if (error.code === '23505') {
+        console.log('[barcodeNameService] Duplicate suggestion ignored');
+        return true;
+      }
       console.error('[barcodeNameService] Error submitting suggestion:', error);
       return false;
     }
@@ -226,5 +287,62 @@ export async function hasNameForBarcode(
 ): Promise<boolean> {
   const result = await resolveBarcodeToName(barcode, storeId);
   return result.name !== null;
+}
+
+/**
+ * Update or insert a name into the barcode_catalog.
+ * This is used when a user provides/corrects a product name.
+ * The name is saved with source='user' to indicate it was user-provided.
+ * 
+ * Note: barcode_catalog has RLS that prevents direct client writes.
+ * This function uses an RPC call to bypass RLS with SECURITY DEFINER.
+ * 
+ * @param barcode - The barcode
+ * @param name - The product name to save
+ * @param locale - The locale for the name
+ * @returns true if successful, false otherwise
+ */
+export async function updateBarcodeCatalog(
+  barcode: string,
+  name: string,
+  locale?: string
+): Promise<boolean> {
+  if (!barcode || !name) {
+    console.error('[barcodeNameService] updateBarcodeCatalog: Missing required parameters');
+    return false;
+  }
+
+  // Ensure locale is provided
+  const effectiveLocale = locale || 'he';
+
+  try {
+    // Use RPC function to bypass RLS (barcode_catalog is read-only for clients)
+    const { error: rpcError } = await supabase.rpc('upsert_barcode_catalog_name', {
+      p_barcode: barcode,
+      p_name: name,
+      p_locale: effectiveLocale,
+    });
+
+    if (rpcError) {
+      // If RPC doesn't exist, log and continue (graceful degradation)
+      if (rpcError.code === '42883' || rpcError.message?.includes('does not exist')) {
+        console.warn('[barcodeNameService] RPC upsert_barcode_catalog_name not found, skipping catalog update');
+        return false;
+      }
+      // Ignore duplicate key violations (barcode already exists with same or different name)
+      if (rpcError.code === '23505') {
+        console.log('[barcodeNameService] Barcode already exists in catalog, treating as success');
+        return true;
+      }
+      console.error('[barcodeNameService] Error updating catalog via RPC:', rpcError);
+      return false;
+    }
+
+    console.log(`[barcodeNameService] Updated barcode_catalog: ${barcode} -> "${name}" (locale: ${effectiveLocale})`);
+    return true;
+  } catch (error) {
+    console.error('[barcodeNameService] Error updating catalog:', error);
+    return false;
+  }
 }
 

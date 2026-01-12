@@ -21,7 +21,7 @@ const TRIAL_ENDED_KEY = (ownerId: string) => `trial_ended_shown_${ownerId}`;
 export function TrialEndedDialog() {
   const router = useRouter();
   const { t, isRTL } = useLanguage();
-  const { subscription, isPro, isFreeTrialActive } = useSubscription();
+  const { subscription, isPro, isFreeTrialActive, loading: subscriptionLoading } = useSubscription();
   const { activeOwnerId } = useActiveOwner();
   const rtlContainer = getRtlContainerStyles(isRTL);
   const rtlText = getRtlTextStyles(isRTL);
@@ -31,8 +31,38 @@ export function TrialEndedDialog() {
 
   useEffect(() => {
     const checkTrialEnded = async () => {
-      // Don't show if user is Pro
-      if (!subscription || !activeOwnerId || isPro) {
+      // CRITICAL: Wait for subscription to load before checking
+      if (subscriptionLoading) {
+        console.log('[TrialEndedDialog] Subscription still loading, waiting...');
+        return;
+      }
+
+      // CRITICAL: Don't show if user is Pro OR still in trial
+      if (!subscription || !activeOwnerId || isPro || isFreeTrialActive) {
+        console.log('[TrialEndedDialog] Not showing:', { 
+          isPro, 
+          isFreeTrialActive, 
+          plan: subscription?.plan,
+          trialDaysRemaining: subscription?.trialDaysRemaining,
+          isTrialActive: subscription?.isTrialActive
+        });
+        
+        // If user is in trial, clear the "already shown" flag
+        // This ensures if trial expires later, they'll see the dialog
+        if (isFreeTrialActive && activeOwnerId) {
+          const reminderKey = TRIAL_ENDED_KEY(activeOwnerId);
+          const hasShown = await AsyncStorage.getItem(reminderKey);
+          if (hasShown) {
+            console.log('[TrialEndedDialog] User is in trial, clearing stale "already shown" flag');
+            await AsyncStorage.removeItem(reminderKey);
+          }
+        }
+        
+        // If user is back in trial (e.g. after reload), hide the dialog
+        if (visible && isFreeTrialActive) {
+          console.log('[TrialEndedDialog] User is back in trial, hiding dialog');
+          setVisible(false);
+        }
         return;
       }
 
@@ -45,15 +75,18 @@ export function TrialEndedDialog() {
         const hasShown = await AsyncStorage.getItem(reminderKey);
         
         if (!hasShown) {
+          console.log('[TrialEndedDialog] Showing trial ended dialog');
           setVisible(true);
           // Mark as shown
           await AsyncStorage.setItem(reminderKey, 'true');
+        } else {
+          console.log('[TrialEndedDialog] Already shown before');
         }
       }
     };
 
     checkTrialEnded();
-  }, [subscription, activeOwnerId]);
+  }, [subscription, activeOwnerId, isPro, isFreeTrialActive, subscriptionLoading, visible]);
 
   const handleUpgrade = () => {
     setVisible(false);
@@ -64,8 +97,8 @@ export function TrialEndedDialog() {
     setVisible(false);
   };
 
-  // Don't show if user is Pro or still on free trial
-  if (!subscription || isPro || isFreeTrialActive) {
+  // Don't show if subscription is loading or user is Pro or still on free trial
+  if (subscriptionLoading || !subscription || isPro || isFreeTrialActive) {
     return null;
   }
 

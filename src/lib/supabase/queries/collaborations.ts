@@ -107,6 +107,22 @@ export async function getPendingInvitations(memberId: string): Promise<Collabora
 }
 
 /**
+ * Check if an error is a network-related error
+ */
+function isNetworkError(error: any): boolean {
+  if (!error) return false;
+  const message = error.message?.toLowerCase() || '';
+  return (
+    message.includes('network') ||
+    message.includes('connection') ||
+    message.includes('fetch') ||
+    message.includes('timeout') ||
+    message.includes('offline') ||
+    error.code === 'NETWORK_ERROR'
+  );
+}
+
+/**
  * Fetch active collaborations for the current user (member side).
  */
 export async function getActiveCollaborations(memberId: string): Promise<CollaborationWithOwner[]> {
@@ -118,6 +134,11 @@ export async function getActiveCollaborations(memberId: string): Promise<Collabo
     .order('created_at', { ascending: false });
 
   if (error) {
+    // Network errors - log as warning and return empty (graceful degradation)
+    if (isNetworkError(error)) {
+      console.warn('[Collaborations] Network error - returning empty:', error.message);
+      return [];
+    }
     console.error('Error fetching active collaborations:', error);
     throw error;
   }

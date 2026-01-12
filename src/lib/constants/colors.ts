@@ -19,6 +19,7 @@ export const THEME_COLORS = {
   surface: '#FFFFFF',
   surfaceVariant: '#F8F9FA',
   error: '#B00020',
+  warning: '#FF9800', // Orange/Amber for trial/experimental features
   text: '#212121',
   textSecondary: '#757575',
   textTertiary: '#9E9E9E',

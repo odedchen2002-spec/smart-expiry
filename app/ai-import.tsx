@@ -1,6 +1,10 @@
 import { useLanguage } from '@/context/LanguageContext';
 import { THEME_COLORS } from '@/lib/constants/colors';
+import { itemEvents } from '@/lib/events/itemEvents';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
+import { useDatePickerStyle } from '@/lib/hooks/useDatePickerStyle';
+import { useSubscription } from '@/lib/hooks/useSubscription';
+import { addToOfflineQueue } from '@/lib/offline/offlineQueue';
 import { supabase } from '@/lib/supabase/client';
 import { createItem } from '@/lib/supabase/mutations/items';
 import { createProduct } from '@/lib/supabase/mutations/products';
@@ -9,13 +13,19 @@ import { getOrCreateDefaultLocation } from '@/lib/supabase/queries/locations';
 import { getProductByBarcode } from '@/lib/supabase/queries/products';
 import { getRtlContainerStyles, getRtlTextStyles } from '@/lib/utils/rtlStyles';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Alert, Modal, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ActivityIndicator, Button, Card, Dialog, IconButton, Portal, Snackbar, Text, TextInput, useTheme } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useQueryClient } from '@tanstack/react-query';
+
+const PENDING_SAVE_SUCCESS_KEY = 'pending_ai_import_success';
+const PENDING_SAVE_ERROR_KEY = 'pending_save_error';
 
 export type AiImportedItem = {
   id: string; // UI only
@@ -28,7 +38,16 @@ export default function AiImportScreen() {
   const router = useRouter();
   const { t, locale, isRTL } = useLanguage();
   const theme = useTheme();
-  const { activeOwnerId, isViewer, loading: ownerLoading } = useActiveOwner();
+  const { activeOwnerId, isViewer, isOwner: isOwnerFromHook, loading: ownerLoading } = useActiveOwner();
+  // Use isOwner directly from hook - it's accurate for both owners and collaborators (editors/viewers)
+  const isOwner = isOwnerFromHook;
+  
+  // DEBUG: Log owner status
+  console.log('[AiImport] 🔍 Owner Status:', { isViewer, isOwner, activeOwnerId });
+  
+  const { isPro, isFreeTrialActive, subscription, refresh: refreshSubscription } = useSubscription();
+  const { datePickerStyle, loading: datePickerStyleLoading } = useDatePickerStyle();
+  const queryClient = useQueryClient();
   const rtlContainer = getRtlContainerStyles(isRTL);
   const rtlText = getRtlTextStyles(isRTL);
   const rtlTextCenter = getRtlTextStyles(isRTL, 'center');
@@ -36,7 +55,6 @@ export default function AiImportScreen() {
   const [items, setItems] = useState<AiImportedItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [snack, setSnack] = useState<string | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
   const [datePickerVisible, setDatePickerVisible] = useState<string | null>(null);
@@ -44,13 +62,36 @@ export default function AiImportScreen() {
   const [aiAnalysisCount, setAiAnalysisCount] = useState<number>(0);
   const [isProPlan, setIsProPlan] = useState<boolean>(false);
   const [aiLimitDialogVisible, setAiLimitDialogVisible] = useState(false);
+  const [itemCount, setItemCount] = useState<number | null>(null);
+  const [planLimitDialogVisible, setPlanLimitDialogVisible] = useState(false);
+  
+  const PRO_PLAN_LIMIT = 2000;
+  const FREE_PLAN_LIMIT = 150;
 
   useEffect(() => {
     if (activeOwnerId) {
       loadCategories();
       loadAiUsage();
+      loadItemCount();
     }
   }, [activeOwnerId]);
+
+  const loadItemCount = async () => {
+    if (!activeOwnerId) return;
+    try {
+      const { count, error } = await supabase
+        .from('items')
+        .select('*', { count: 'exact', head: true })
+        .eq('owner_id', activeOwnerId)
+        .neq('status', 'resolved');
+
+      if (!error && count !== null) {
+        setItemCount(count);
+      }
+    } catch (err) {
+      console.error('Error checking item count:', err);
+    }
+  };
 
   const loadCategories = async () => {
     if (!activeOwnerId) return;
@@ -82,7 +123,7 @@ export default function AiImportScreen() {
         const tier = (data as any).subscription_tier as string | null;
         const count = ((data as any).ai_analysis_count as number | null) ?? 0;
         setAiAnalysisCount(count);
-        setIsProPlan(tier === 'pro');
+        setIsProPlan(tier === 'pro' || tier === 'pro_plus');
       }
     } catch (e) {
       console.error('Unexpected error loading AI usage info:', e);
@@ -100,6 +141,71 @@ export default function AiImportScreen() {
     }
 
     return true;
+  };
+
+  // SPLIT & SCAN: Helper to split tall images into overlapping vertical slices
+  const splitImageVertically = async (uri: string, width: number, height: number) => {
+    console.log('[AI Import] Splitting image into 2 overlapping slices...');
+
+    // Slice 1: Top 0%-60%
+    const topSlice = await ImageManipulator.manipulateAsync(
+      uri,
+      [{
+        crop: {
+          originX: 0,
+          originY: 0,
+          width,
+          height: Math.round(height * 0.6),
+        },
+      }],
+      {
+        compress: 0.92,
+        format: ImageManipulator.SaveFormat.JPEG,
+        base64: true,
+      }
+    );
+
+    // Slice 2: Bottom 40%-100% (20% overlap)
+    const bottomSlice = await ImageManipulator.manipulateAsync(
+      uri,
+      [{
+        crop: {
+          originX: 0,
+          originY: Math.round(height * 0.4),
+          width,
+          height: Math.round(height * 0.6),
+        },
+      }],
+      {
+        compress: 0.92,
+        format: ImageManipulator.SaveFormat.JPEG,
+        base64: true,
+      }
+    );
+
+    return [
+      { base64: topSlice.base64!, sliceNum: 1 },
+      { base64: bottomSlice.base64!, sliceNum: 2 },
+    ];
+  };
+
+  // SPLIT & SCAN: Merge and deduplicate results
+  const mergeSliceResults = (slice1Items: any[], slice2Items: any[]) => {
+    const merged = [...slice1Items];
+    const seen = new Set(slice1Items.map(item => `${item.name}|${item.expiryDate}`));
+
+    let duplicatesRemoved = 0;
+    for (const item of slice2Items) {
+      const key = `${item.name}|${item.expiryDate}`;
+      if (!seen.has(key)) {
+        merged.push(item);
+      } else {
+        duplicatesRemoved++;
+      }
+    }
+
+    console.log('[AI Import] Merged result:', merged.length, 'rows (removed', duplicatesRemoved, 'duplicates)');
+    return merged;
   };
 
   const handlePickImage = async () => {
@@ -120,6 +226,34 @@ export default function AiImportScreen() {
       return;
     }
 
+    // Check if user has reached plan limit
+    // IMPORTANT: Trial users (free tier during trial period) should NOT be limited
+    // Only enforce limits for: paid Pro (2000), paid Pro+ (unlimited), and non-trial Free (150)
+    console.log('[AiImport] Plan limit check:', {
+      isFreeTrialActive,
+      isPro,
+      itemCount,
+      plan: subscription?.plan,
+      isTrialActive: subscription?.isTrialActive
+    });
+    
+    if (!isFreeTrialActive && itemCount !== null) {
+      // Pro user reached 2000 item limit (only Pro, not Pro Plus or Trial)
+      if (isPro && subscription?.plan === 'pro' && subscription?.isPaidActive && itemCount >= PRO_PLAN_LIMIT) {
+        console.log('[AiImport] ❌ Pro user hit 2000 limit');
+        setPlanLimitDialogVisible(true);
+        return;
+      }
+      // Free user reached 150 item limit (NOT in trial period)
+      if (!isPro && itemCount >= FREE_PLAN_LIMIT) {
+        console.log('[AiImport] ❌ Free (non-trial) user hit 150 limit');
+        setPlanLimitDialogVisible(true);
+        return;
+      }
+    } else {
+      console.log('[AiImport] ✅ User is in trial or below limit, allowing add');
+    }
+
     if (!checkAiLimitAndMaybeBlock()) {
       return;
     }
@@ -133,57 +267,156 @@ export default function AiImportScreen() {
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'], // Use array format to avoid deprecation warning
-        allowsEditing: true, // Enable editing to allow cropping/resizing
-        quality: 0.3, // Reduced quality to reduce file size while maintaining readability
-        base64: true,
+        allowsEditing: true, // ENABLED: Allow user to crop to focus on table area
+        aspect: [1, 1.25], // Height:Width ratio = 1:1.25 (slightly taller than square)
+        quality: 1.0, // Keep original quality
+        base64: false, // We'll get base64 after manipulation
         allowsMultipleSelection: false,
-        // Note: OpenAI GPT-4o can handle large images (up to 20MB), but we compress to reduce upload time
       });
 
       if (!result.canceled && result.assets[0]) {
-        const base64 = result.assets[0].base64;
+        const asset = result.assets[0];
+
+        // DETAILED DEBUG LOGGING - Original image
+        const originalWidth = asset.width || 0;
+        const originalHeight = asset.height || 0;
+        const originalAspectRatio = originalHeight / originalWidth;
+        const isTallDocument = originalAspectRatio > 1.4; // Tall table/list
+
+        console.log('[AI Import] ===== ORIGINAL IMAGE (NO RESIZE/COMPRESS) =====');
+        console.log('[AI Import] URI:', asset.uri?.substring(0, 50) + '...');
+        console.log('[AI Import] Dimensions:', { width: originalWidth, height: originalHeight });
+        console.log('[AI Import] File size:', asset.fileSize ? (asset.fileSize / 1024).toFixed(1) + ' KB' : 'unknown');
+        console.log('[AI Import] Aspect ratio (H/W):', originalAspectRatio.toFixed(3));
+        console.log('[AI Import] Is tall document:', isTallDocument);
+
+        // Light resize to reduce OpenAI time while maintaining quality
+        const maxSide = 2400;  // Reduced from no limit (was causing 90s+ calls)
+        const currentMaxSide = Math.max(originalWidth, originalHeight);
+
+        let resize: { width?: number; height?: number } | undefined;
+        if (currentMaxSide > maxSide) {
+          const scale = maxSide / currentMaxSide;
+          resize = {
+            width: Math.round(originalWidth * scale),
+            height: Math.round(originalHeight * scale),
+          };
+          console.log('[AI Import] Resize:', { scale: scale.toFixed(3), target: `${resize.width}x${resize.height}` });
+        } else {
+          console.log('[AI Import] No resize needed (within maxSide)');
+        }
+
+        // Convert to base64 with light compression
+        const manipulatedImage = await ImageManipulator.manipulateAsync(
+          asset.uri,
+          resize ? [{ resize }] : [],  // Resize if needed
+          {
+            compress: 0.92,  // Light compression for balance between quality and speed
+            format: ImageManipulator.SaveFormat.JPEG,
+            base64: true,
+          }
+        );
+
+        const base64 = manipulatedImage.base64;
         if (!base64) {
           setSnack(t('screens.aiImport.errors.errorLoadingImage'));
           return;
         }
 
-        // Check base64 size - OpenAI GPT-4o can handle up to 20MB, but we'll warn if over 5MB
-        // Base64 is ~33% larger than binary
-        const base64SizeKB = (base64.length * 3) / 4 / 1024; // Approximate size in KB
-        const base64SizeMB = base64SizeKB / 1024;
-        
-        if (base64SizeMB > 5) {
-          Alert.alert(
-            t('screens.aiImport.errors.imageTooLarge'),
-            t('screens.aiImport.errors.imageTooLargeMessage', { size: Math.round(base64SizeMB * 10) / 10 }),
-            [
-              { text: t('common.cancel'), style: 'cancel' },
-              { text: t('screens.aiImport.errors.tryAnyway'), onPress: () => analyzeImage(base64) },
-            ]
-          );
-          return;
-        }
-        
-        // Warn if image is large but still processable
-        if (base64SizeMB > 2) {
-          console.log(`[AI Import] Large image detected: ${Math.round(base64SizeMB * 10) / 10}MB, processing anyway...`);
-        }
+        // LOGGING - Base64 size before sending
+        const base64Length = base64.length;
+        const estimatedSizeKB = ((base64Length * 3) / 4 / 1024).toFixed(1);
 
-        // Double-check activeOwnerId before analyzing (it might have changed during image selection)
+        console.log('[AI Import] ===== BEFORE SENDING TO AI =====');
+        console.log('[AI Import] Base64 length:', base64Length);
+        console.log('[AI Import] Estimated size (KB):', estimatedSizeKB);
+        console.log('[AI Import] Image sent AS-IS (no resize/compress)');
+        console.log('[AI Import] ========================================');
+
+        // Double-check activeOwnerId before analyzing
         if (!activeOwnerId) {
           setSnack(t('screens.aiImport.errors.noOwner'));
           return;
         }
 
-        await analyzeImage(base64);
+        // SPLIT & SCAN only for TALL documents (not square crops)
+        const needsSplitScan = originalAspectRatio > 1.4;
+
+        if (needsSplitScan) {
+          console.log('[AI Import] 🔪 SPLIT & SCAN MODE - Aspect ratio:', originalAspectRatio.toFixed(2));
+          setAnalyzing(true);
+          setItems([]);
+
+          try {
+            // Split image
+            const slices = await splitImageVertically(manipulatedImage.uri, manipulatedImage.width, manipulatedImage.height);
+            console.log('[AI Import] Created', slices.length, 'slices');
+
+            // Analyze each slice
+            const allItems: AiImportedItem[][] = [];
+
+            for (const slice of slices) {
+              console.log('[AI Import] Analyzing slice', slice.sliceNum, '...');
+              const { data, error } = await supabase.functions.invoke('ai-import-table', {
+                body: { imageBase64: slice.base64, ownerId: activeOwnerId, mode: 'table_import', model: 'gemini' },
+              });
+
+              if (error) {
+                console.error('[AI Import] Slice', slice.sliceNum, 'error:', error);
+                throw error;
+              }
+
+              if (data?.items && Array.isArray(data.items)) {
+                const sliceItems: AiImportedItem[] = data.items.map((item: any, index: number) => ({
+                  id: `item-s${slice.sliceNum}-${Date.now()}-${index}`,
+                  name: item.name || '',
+                  expiryDate: item.expiryDate || '',
+                  barcode: item.barcode || null,
+                  needsBarcode: !item.barcode,
+                  rowIndex: item.rowIndex || index + 1,
+                }));
+
+                allItems.push(sliceItems);
+                console.log('[AI Import] Slice', slice.sliceNum, 'returned', sliceItems.length, 'items');
+              }
+            }
+
+            // Merge results
+            if (allItems.length === 2) {
+              const mergedItems = mergeSliceResults(allItems[0], allItems[1]);
+
+              // Filter out items without names (same as analyzeImage does)
+              const itemsWithNames = mergedItems.filter(item => item.name && item.name.trim());
+
+              console.log('[AI Import] ✅ SPLIT & SCAN complete:', itemsWithNames.length, 'total rows (filtered', mergedItems.length - itemsWithNames.length, 'empty names)');
+
+              setItems(itemsWithNames);
+              setAnalyzing(false);
+
+              // Record AI usage
+              await loadAiUsage();
+
+              setSnack(t('screens.aiImport.success', { count: itemsWithNames.length }));
+            } else {
+              throw new Error('Expected 2 slices');
+            }
+          } catch (error: any) {
+            console.error('[AI Import] SPLIT & SCAN error:', error);
+            setAnalyzing(false);
+            setSnack(t('screens.aiImport.errors.analysisError', { error: error.message }));
+          }
+        } else {
+          // Normal single-pass OCR with Gemini
+          await analyzeImage(base64, 'gemini');
+        }
       }
     } catch (error: any) {
-      console.error('Error picking image:', error);
+      console.error('Error picking/processing image:', error);
       setSnack(t('screens.aiImport.errors.errorPickingImage'));
     }
   };
 
-  const analyzeImage = async (imageBase64: string) => {
+  const analyzeImage = async (imageBase64: string, model?: string) => {
     if (!activeOwnerId) {
       setSnack(t('screens.aiImport.errors.noOwner'));
       return;
@@ -196,27 +429,39 @@ export default function AiImportScreen() {
     setAnalyzing(true);
     setItems([]);
 
-    console.log('[AI Import] Starting image analysis, base64 length:', imageBase64.length);
+    console.log('[AI Import] Starting image analysis, base64 length:', imageBase64.length, 'Model:', model || 'default');
     console.log('[AI Import] Calling Edge Function: ai-import-table');
 
     try {
       const { data, error } = await supabase.functions.invoke('ai-import-table', {
-        body: { imageBase64, ownerId: activeOwnerId },
+        body: { imageBase64, ownerId: activeOwnerId, mode: 'table_import', model },
       });
 
       console.log('[AI Import] Edge Function response - has data:', !!data, 'has error:', !!error);
 
       if (error) {
-        console.error('AI import error:', error);
-        console.error('Error details:', JSON.stringify(error, null, 2));
-        
+        const status = (error as any).context?.status;
+
+        if (status === 403) {
+          console.log('[AI Import] Quota exceeded (403), handling gracefully.');
+        } else {
+          console.error('AI import error:', error);
+          console.error('Error details:', JSON.stringify(error, null, 2));
+        }
+
         // Extract error message
         let errorMessage = t('screens.aiImport.errors.unknownError');
-        
+
         // Try to get error from context response
         try {
           const context = (error as any).context;
-          if (context && context.status === 500) {
+          // Allow parsing details for any error status (400, 403, 500, etc)
+          if (context) {
+            // Default 403 to quota exceeded if we can't parse the body
+            if (context.status === 403) {
+              errorMessage = 'quota_exceeded';
+            }
+
             // The response body might be available, but Supabase client may have consumed it
             // Check if there's any error data in the error object itself
             if ((error as any).data) {
@@ -231,7 +476,10 @@ export default function AiImportScreen() {
                     }
                   }
                 } catch (e) {
-                  errorMessage = errorData;
+                  // Keep the 403 quota_exceeded default if parsing fails and no other message
+                  if (context.status !== 403) {
+                    errorMessage = errorData;
+                  }
                 }
               } else if (errorData && errorData.error) {
                 errorMessage = errorData.error;
@@ -241,7 +489,7 @@ export default function AiImportScreen() {
         } catch (e) {
           console.error('Error extracting error details:', e);
         }
-        
+
         // Fallback to error.message or other properties
         if (errorMessage === t('screens.aiImport.errors.unknownError')) {
           if ((error as any).message) {
@@ -252,9 +500,12 @@ export default function AiImportScreen() {
             errorMessage = (error as any).error;
           }
         }
-        
+
         // Check for specific error types and provide user-friendly messages
-        if (errorMessage.includes('OPENAI_API_KEY not configured') || errorMessage.includes('AI service not configured')) {
+        if (errorMessage.includes('quota_exceeded') || errorMessage.includes('QUOTA_EXCEEDED')) {
+          // Use the existing limitReached message or fall back to a generic one
+          errorMessage = t('screens.aiImport.errors.limitReached') || 'מכסת השימוש החודשית שלך ב-AI הסתיימה.';
+        } else if (errorMessage.includes('OPENAI_API_KEY not configured') || errorMessage.includes('AI service not configured')) {
           errorMessage = t('screens.aiImport.errors.aiNotConfigured');
         } else if (errorMessage.includes('maximum context length') || errorMessage.includes('context length') || errorMessage.includes('too large')) {
           errorMessage = t('screens.aiImport.errors.imageTooLargeError');
@@ -269,7 +520,7 @@ export default function AiImportScreen() {
         } else if (errorMessage.includes('Internal server error')) {
           errorMessage = t('screens.aiImport.errors.internalError');
         }
-        
+
         setSnack(t('screens.aiImport.errors.analysisError', { error: errorMessage }));
         return;
       }
@@ -281,9 +532,33 @@ export default function AiImportScreen() {
           expiryDate: item.expiryDate || '',
           barcode: item.barcode || null,
         }));
-        setItems(importedItems);
-        if (importedItems.length === 0) {
+
+        // Filter out items with no name (only keep items that have names)
+        const itemsWithNames = importedItems.filter(item => item.name.trim());
+
+        if (itemsWithNames.length === 0) {
+          // No items with names found
           setSnack(t('screens.aiImport.errors.noProductsFound'));
+          setItems([]);
+        } else {
+          // CHANGED: Don't filter out items without dates - show ALL items
+          // This allows user to see and fix problematic rows
+          const itemsWithDates = itemsWithNames.filter(item => item.expiryDate);
+          const itemsWithoutDates = itemsWithNames.filter(item => !item.expiryDate);
+
+          // Always show ALL items (even those without dates)
+          setItems(itemsWithNames);
+
+          // Notify user about items that need attention
+          if (itemsWithoutDates.length > 0) {
+            setSnack(t('screens.aiImport.success.itemsNeedReview', {
+              total: itemsWithNames.length,
+              needReview: itemsWithoutDates.length
+            }) || `נמצאו ${itemsWithNames.length} פריטים, ${itemsWithoutDates.length} דורשים תיקון תאריך`);
+          } else {
+            // All items have dates
+            setSnack(t('screens.aiImport.success.allItemsComplete', { count: itemsWithNames.length }) || `נמצאו ${itemsWithNames.length} פריטים`);
+          }
         }
 
         // Refresh usage count after successful analysis for free users
@@ -338,112 +613,214 @@ export default function AiImportScreen() {
       return;
     }
 
-    // Validate all items
-    const invalidItems = items.filter((item) => !item.name.trim() || !item.expiryDate);
+    // Validate: only name is required, expiryDate is optional
+    // Items without dates will be flagged but can still be saved
+    const invalidItems = items.filter((item) => !item.name.trim());
     if (invalidItems.length > 0) {
-      setSnack(t('screens.aiImport.errors.validationError'));
+      setSnack(t('screens.aiImport.errors.validationError') || 'יש פריטים ללא שם');
       return;
     }
 
-    setSaving(true);
+    // Warn about items without dates but allow save
+    const itemsWithoutDates = items.filter((item) => !item.expiryDate);
+    if (itemsWithoutDates.length > 0) {
+      console.log(`[AI Import] Saving ${itemsWithoutDates.length} items without expiry dates - will skip creating inventory items for them`);
+    }
 
-    try {
-      // Enforce free-plan product limit for AI import based on unlocked items
-      // Skip this check entirely for Pro users
-      if (!isProPlan) {
-        try {
-          const { count, error: countError } = await supabase
-            .from('items')
-            .select('id', { count: 'exact', head: true })
-            .eq('owner_id', activeOwnerId)
-            .eq('is_plan_locked', false as any);
+    // Check free-plan limit synchronously before navigating
+    // IMPORTANT: Trial users should NOT be limited
+    if (!isProPlan && !isFreeTrialActive) {
+      try {
+        const { count, error: countError } = await supabase
+          .from('items')
+          .select('id', { count: 'exact', head: true })
+          .eq('owner_id', activeOwnerId)
+          .eq('is_plan_locked', false as any);
 
-          if (countError) {
-            console.error('[AI Import] Error counting existing items for free-plan limit:', countError);
-          } else {
-            const MAX_FREE_PRODUCTS = 150;
-            const unlockedCount = (count as number | null) ?? 0;
-            if (unlockedCount >= MAX_FREE_PRODUCTS) {
-              Alert.alert(
-                t('screens.aiImport.errors.limitReached'),
-                t('screens.aiImport.errors.limitReachedMessage')
-              );
-              setSaving(false);
-              return;
-            }
+        if (!countError) {
+          const MAX_FREE_PRODUCTS = 150;
+          const unlockedCount = (count as number | null) ?? 0;
+          console.log('[AI Import] Save limit check:', { unlockedCount, MAX_FREE_PRODUCTS, isFreeTrialActive });
+          if (unlockedCount >= MAX_FREE_PRODUCTS) {
+            console.log('[AI Import] ❌ Free (non-trial) user hit 150 limit on save');
+            Alert.alert(
+              t('screens.aiImport.errors.limitReached'),
+              t('screens.aiImport.errors.limitReachedMessage')
+            );
+            return;
           }
-        } catch (limitError) {
-          console.error('[AI Import] Exception while enforcing free-plan product limit:', limitError);
         }
+      } catch (limitError) {
+        console.error('[AI Import] Exception while enforcing free-plan product limit:', limitError);
       }
+    } else {
+      console.log('[AI Import] ✅ Save allowed (Pro or Trial user)');
+    }
 
-      const defaultLocationId = await getOrCreateDefaultLocation(activeOwnerId);
+    // Capture data for background save
+    const itemsToSave = [...items];
+    const ownerId = activeOwnerId;
+    const isPro = isProPlan;
 
-      for (const item of items) {
-        try {
-          // Find or create product
-          let productId: string | null = null;
+    // Store "saving in progress" message for immediate display on scanner screen
+    await AsyncStorage.setItem(PENDING_SAVE_SUCCESS_KEY, 'saving');
 
-          if (item.barcode) {
-            const existing = await getProductByBarcode(activeOwnerId, item.barcode);
-            if (existing) {
-              productId = existing.id;
+    // Navigate back immediately
+    router.back();
+
+    // Run save in background
+    (async () => {
+      try {
+        const defaultLocationId = await getOrCreateDefaultLocation(ownerId);
+
+        let savedCount = 0;
+        let failedCount = 0;
+        let offlineCount = 0;
+
+        for (const item of itemsToSave) {
+          try {
+            // Skip items without valid names (defensive check)
+            if (!item.name || !item.name.trim()) {
+              console.warn('[AI Import] Skipping item without name:', item);
+              failedCount++;
+              continue;
+            }
+
+            // Skip items without expiry date (database requires it)
+            if (!item.expiryDate || !item.expiryDate.trim()) {
+              console.warn('[AI Import] Skipping item without expiry date:', item.name);
+              failedCount++;
+              continue;
+            }
+
+            // Find or create product
+            let productId: string | null = null;
+
+            if (item.barcode) {
+              const existing = await getProductByBarcode(ownerId, item.barcode);
+              if (existing) {
+                productId = existing.id;
+              } else {
+                const created = await createProduct({
+                  ownerId: ownerId,
+                  name: item.name.trim(),
+                  barcode: item.barcode,
+                  category: null,
+                });
+                productId = created?.id ?? null;
+              }
             } else {
               const created = await createProduct({
-                ownerId: activeOwnerId,
+                ownerId: ownerId,
                 name: item.name.trim(),
-                barcode: item.barcode,
+                barcode: null,
                 category: null,
               });
               productId = created?.id ?? null;
             }
-          } else {
-            const created = await createProduct({
-              ownerId: activeOwnerId,
-              name: item.name.trim(),
-              barcode: null,
-              category: null,
-            });
-            productId = created?.id ?? null;
-          }
 
-          if (!productId) {
-            console.warn('Failed to create product for:', item.name);
-            continue;
-          }
+            if (!productId) {
+              console.warn('Failed to create product for:', item.name);
+              failedCount++;
+              continue;
+            }
 
-          // Create item
-          await createItem({
-            owner_id: activeOwnerId,
-            product_id: productId,
-            expiry_date: item.expiryDate as any,
-            note: null,
-            status: undefined as any,
-            barcode_snapshot: item.barcode || null,
-            location_id: defaultLocationId,
-          } as any);
-        } catch (error: any) {
-          console.error('Error saving item:', item.name, error);
-          // Continue with next item
+            // Create item - convert empty expiry date to null
+            await createItem({
+              owner_id: ownerId,
+              product_id: productId,
+              expiry_date: item.expiryDate as any,
+              note: null,
+              status: undefined as any,
+              barcode_snapshot: item.barcode || null,
+              location_id: defaultLocationId,
+            } as any);
+
+            savedCount++;
+          } catch (error: any) {
+            const errorMessage = error?.message || '';
+            const isNetworkError = errorMessage.includes('Network request failed') || errorMessage.includes('Failed to fetch');
+
+            if (isNetworkError) {
+              // Save to offline queue for later sync
+              try {
+                await addToOfflineQueue({
+                  type: 'add_item',
+                  data: {
+                    name: item.name.trim(),
+                    barcode: item.barcode || null,
+                    expiry_date: item.expiryDate,
+                    quantity: 1,
+                    owner_id: ownerId,
+                    location_id: null,
+                    category_name: null,
+                    notes: null,
+                  },
+                });
+                offlineCount++;
+                console.log('[AI Import] Item saved to offline queue:', item.name);
+              } catch (offlineError) {
+                console.error('[AI Import] Failed to save to offline queue:', item.name, offlineError);
+                failedCount++;
+              }
+            } else {
+              console.error('Error saving item:', item.name, error);
+              failedCount++;
+            }
+          }
         }
-      }
 
-      setSnack(t('screens.aiImport.errors.saveSuccess'));
-      setTimeout(() => {
-        router.back();
-      }, 1500);
-    } catch (error: any) {
-      console.error('Error saving items:', error);
-      setSnack(t('screens.aiImport.errors.saveError', { error: error.message || t('screens.aiImport.errors.unknownError') }));
-    } finally {
-      setSaving(false);
-    }
+        // CRITICAL: Invalidate TanStack Query cache to refresh All screen
+        // This ensures the newly saved items appear immediately in the All screen
+        if (savedCount > 0 || offlineCount > 0) {
+          console.log('[AI Import] Invalidating items cache after saving', savedCount, 'items');
+          // Invalidate both 'all' and 'expired' scopes to ensure fresh data
+          if (ownerId) {
+            queryClient.invalidateQueries({ queryKey: ['items', ownerId, 'all'] });
+            queryClient.invalidateQueries({ queryKey: ['items', ownerId, 'expired'] });
+            queryClient.invalidateQueries({ queryKey: ['stats', ownerId] });
+          }
+          
+          // Refresh subscription to update activeItemsCount and canAddItems
+          // This prevents collaborators from exceeding the owner's plan limit
+          if (refreshSubscription) {
+            await refreshSubscription();
+            console.log('[AI Import] Subscription refreshed after adding items');
+          }
+        }
+
+        // Store result for scanner screen to display
+        const totalSuccess = savedCount + offlineCount;
+        if (failedCount === 0) {
+          // All succeeded (either online or queued for offline)
+          if (offlineCount > 0 && savedCount === 0) {
+            // All saved to offline queue
+            await AsyncStorage.setItem(PENDING_SAVE_SUCCESS_KEY, `offline:${offlineCount}`);
+          } else if (offlineCount > 0) {
+            // Some online, some offline
+            await AsyncStorage.setItem(PENDING_SAVE_SUCCESS_KEY, `mixed:${savedCount}:${offlineCount}`);
+          } else {
+            // All online
+            await AsyncStorage.setItem(PENDING_SAVE_SUCCESS_KEY, 'all');
+          }
+        } else if (totalSuccess === 0) {
+          // All failed
+          await AsyncStorage.setItem(PENDING_SAVE_ERROR_KEY, t('screens.aiImport.errors.allFailed'));
+        } else {
+          // Partial success
+          await AsyncStorage.setItem(PENDING_SAVE_SUCCESS_KEY, `partial:${totalSuccess}:${itemsToSave.length}`);
+        }
+      } catch (error: any) {
+        console.error('Error saving items:', error);
+        await AsyncStorage.setItem(PENDING_SAVE_ERROR_KEY, t('screens.aiImport.errors.networkError'));
+      }
+    })();
   };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <ScrollView 
-        style={styles.content} 
+      <ScrollView
+        style={styles.content}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 }]}
       >
         {/* Back Button */}
@@ -463,28 +840,37 @@ export default function AiImportScreen() {
           </View>
           <Text style={[styles.heroTitle, rtlTextCenter]}>{t('screens.aiImport.title')}</Text>
           <Text
-          style={[
-            styles.heroSubtitle,
-            rtlTextCenter,
-            { writingDirection: isRTL ? 'rtl' : 'ltr', textAlign: 'center' },
-          ]}
-        >
-          {t('screens.aiImport.subtitle')}
-        </Text>
+            style={[
+              styles.heroSubtitle,
+              rtlTextCenter,
+              { writingDirection: isRTL ? 'rtl' : 'ltr', textAlign: 'center' },
+            ]}
+          >
+            {t('screens.aiImport.subtitle')}
+          </Text>
+          <Text
+            style={[
+              styles.heroTip,
+              rtlTextCenter,
+              { writingDirection: isRTL ? 'rtl' : 'ltr', textAlign: 'center', marginTop: 8, fontSize: 13, fontWeight: 'bold', color: '#6B7280' },
+            ]}
+          >
+            {t('screens.aiImport.imageQualityHint')}
+          </Text>
         </View>
 
         {/* AI usage info */}
         <View style={styles.aiUsageContainer}>
           {isProPlan ? (
             <Text
-            style={[
-              styles.aiUsageText,
-              rtlTextCenter,
-              { writingDirection: isRTL ? 'rtl' : 'ltr', textAlign: 'center' },
-            ]}
-          >
-            {t('screens.aiImport.usagePro')}
-          </Text>
+              style={[
+                styles.aiUsageText,
+                rtlTextCenter,
+                { writingDirection: isRTL ? 'rtl' : 'ltr', textAlign: 'center' },
+              ]}
+            >
+              {t('screens.aiImport.usagePro')}
+            </Text>
           ) : (
             <Text style={[styles.aiUsageText, rtlTextCenter]}>
               {t('screens.aiImport.usageFree', { remaining: Math.max(0, MAX_FREE_ANALYSES - aiAnalysisCount), total: MAX_FREE_ANALYSES })}
@@ -498,14 +884,14 @@ export default function AiImportScreen() {
             <Button
               mode="contained"
               onPress={handlePickImage}
-              disabled={analyzing || saving}
+              disabled={analyzing || ownerLoading || !activeOwnerId}
               style={styles.pickButton}
               buttonColor={THEME_COLORS.primary}
               contentStyle={styles.pickButtonContentStyle}
               labelStyle={styles.pickButtonLabel}
               icon="image-plus"
             >
-              {t('screens.aiImport.selectImage')}
+              {ownerLoading ? t('common.loading') : t('screens.aiImport.selectImage')}
             </Button>
           </Card.Content>
         </Card>
@@ -566,25 +952,15 @@ export default function AiImportScreen() {
                             : t('screens.aiImport.selectDate')}
                         </Text>
                       </View>
-                      <MaterialCommunityIcons 
-                        name={isRTL ? "chevron-left" : "chevron-right"} 
-                        size={20} 
-                        color="#9E9E9E" 
+                      <MaterialCommunityIcons
+                        name={isRTL ? "chevron-left" : "chevron-right"}
+                        size={20}
+                        color="#9E9E9E"
                       />
                     </TouchableOpacity>
                   </View>
 
-                  <View style={styles.itemRow}>
-                    <TextInput
-                      label={t('screens.aiImport.barcode')}
-                      value={item.barcode || ''}
-                      onChangeText={(text) => updateItem(item.id, { barcode: text || null })}
-                      style={[styles.itemInput, rtlText]}
-                      mode="outlined"
-                      keyboardType="numeric"
-                      contentStyle={styles.inputContent}
-                    />
-                  </View>
+
 
                   <View style={styles.deleteButtonContainer}>
                     <Button
@@ -614,8 +990,7 @@ export default function AiImportScreen() {
               <Button
                 mode="contained"
                 onPress={handleSaveAll}
-                disabled={saving || items.length === 0}
-                loading={saving}
+                disabled={items.length === 0}
                 style={styles.saveButton}
                 buttonColor={THEME_COLORS.primary}
                 contentStyle={styles.saveButtonContent}
@@ -660,35 +1035,77 @@ export default function AiImportScreen() {
               <DateTimePicker
                 value={datePickerDate}
                 mode="date"
-                display="spinner"
+                display={
+                  datePickerStyle === 'calendar'
+                    ? (Platform.OS === 'ios' ? 'compact' : 'default')
+                    : (Platform.OS === 'ios' ? 'spinner' : 'default')
+                }
                 onChange={(event, date) => {
                   if (date) {
                     setDatePickerDate(date);
                   }
                 }}
                 style={styles.iosDatePicker}
+                locale={locale}
+                themeVariant="light"
               />
             </View>
           </View>
         </Modal>
       )}
 
-        <Portal>
-          <Dialog
-            visible={aiLimitDialogVisible}
-            onDismiss={() => setAiLimitDialogVisible(false)}
-          >
-            <Dialog.Title style={rtlText}>{t('screens.aiImport.limitDialog.title')}</Dialog.Title>
-            <Dialog.Content>
-              <Text style={rtlText}>
-                {t('screens.aiImport.limitDialog.message')}
-              </Text>
-            </Dialog.Content>
-            <Dialog.Actions>
-              <Button onPress={() => setAiLimitDialogVisible(false)}>{t('screens.aiImport.limitDialog.understood')}</Button>
-            </Dialog.Actions>
-          </Dialog>
-        </Portal>
+      <Portal>
+        <Dialog
+          visible={aiLimitDialogVisible}
+          onDismiss={() => setAiLimitDialogVisible(false)}
+        >
+          <Dialog.Title style={rtlText}>{t('screens.aiImport.limitDialog.title')}</Dialog.Title>
+          <Dialog.Content>
+            <Text style={rtlText}>
+              {t('screens.aiImport.limitDialog.message')}
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setAiLimitDialogVisible(false)}>{t('screens.aiImport.limitDialog.understood')}</Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        <Dialog
+          visible={planLimitDialogVisible}
+          onDismiss={() => setPlanLimitDialogVisible(false)}
+        >
+          <Dialog.Title style={rtlText}>
+            {isOwner 
+              ? (t('common.upgradeRequired') || 'הגעת למגבלת התכנית')
+              : (t('common.upgradeRequired') || 'הגעת למגבלת התכנית')}
+          </Dialog.Title>
+          <Dialog.Content>
+            <Text style={rtlText}>
+              {isOwner 
+                ? (isPro 
+                    ? (t('common.upgradeRequiredMessagePro') || 'הגעת למגבלה של 2,000 מוצרים בתכנית Pro. כדי להוסיף מוצרים נוספים, שדרג לתכנית Pro Plus.')
+                    : (t('screens.add.limitReached.message') || 'התוכנית החינמית מאפשרת עד 150 מוצרים בלבד. כדי להמשיך להוסיף מוצרים, יש לשדרג לתוכנית פרו.'))
+                : (isPro
+                    ? (t('screens.add.limitReached.collaboratorMessagePro') || 'הבעלים הגיע למגבלת תוכנית Pro של 2,000 מוצרים. הבעלים צריך לשדרג ל-Pro+ כדי להוסיף מוצרים נוספים.')
+                    : (t('screens.add.limitReached.collaboratorMessage') || 'הבעלים הגיע למגבלת התוכנית החינמית של 150 מוצרים. הבעלים צריך לשדרג לתוכנית Pro כדי להוסיף מוצרים נוספים.'))}
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setPlanLimitDialogVisible(false)}>
+              {isOwner ? (t('common.cancel') || 'ביטול') : (t('common.ok') || 'הבנתי')}
+            </Button>
+            {/* Only show upgrade button for owners */}
+            {isOwner && (
+              <Button onPress={() => {
+                setPlanLimitDialogVisible(false);
+                router.push('/(paywall)/subscribe');
+              }}>
+                {isPro ? (t('subscription.upgradeToProPlus') || 'שדרג ל-Pro+') : (t('screens.add.limitReached.upgrade') || 'שדרוג')}
+              </Button>
+            )}
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
 
       <Snackbar
         visible={!!snack}
@@ -707,277 +1124,292 @@ export default function AiImportScreen() {
 
 function createStyles(isRTL: boolean) {
   return StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  content: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 20,
-    paddingTop: 60,
-    paddingBottom: 32,
-  },
-  backButtonContainer: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    zIndex: 10,
-  },
-  backButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    margin: 0,
-  },
-  // Hero Section
-  heroSection: {
-    alignItems: 'center',
-    marginBottom: 20,
-    paddingTop: 4,
-    width: '100%',
-  },
-  iconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: `${THEME_COLORS.primary}15`,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  heroTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#1A1A1A',
-    marginBottom: 8,
-    textAlign: 'center',
-    letterSpacing: 0.15,
-    width: '100%',
-  },
-  heroSubtitle: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: '#757575',
-    textAlign: 'center',
-    paddingHorizontal: 8,
-    width: '100%',
-  },
-  aiUsageContainer: {
-    marginBottom: 16,
-  },
-  aiUsageText: {
-    fontSize: 13,
-    color: '#4B5563',
-  },
-  // Pick Button
-  pickButtonCard: {
-    marginBottom: 24,
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  pickButtonContent: {
-    padding: 0,
-  },
-  pickButton: {
-    margin: 0,
-  },
-  pickButtonContentStyle: {
-    paddingVertical: 12,
-  },
-  pickButtonLabel: {
-    fontSize: 17,
-    fontWeight: '600',
-    letterSpacing: 0.3,
-  },
-  // Analyzing State
-  analyzingCard: {
-    marginBottom: 24,
-    borderRadius: 16,
-    backgroundColor: '#F8F9FA',
-  },
-  analyzingContent: {
-    alignItems: 'center',
-    paddingVertical: 32,
-    paddingHorizontal: 24,
-  },
-  analyzingText: {
-    marginTop: 16,
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1A1A1A',
-  },
-  analyzingSubtext: {
-    marginTop: 8,
-    fontSize: 14,
-    color: '#757575',
-  },
-  // Items Container
-  itemsContainer: {
-    marginTop: 8,
-  },
-  itemsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-    gap: 8,
-  },
-  itemsTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#1A1A1A',
-    letterSpacing: 0.15,
-  },
-  // Item Card
-  itemCard: {
-    marginBottom: 16,
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-    position: 'relative',
-    overflow: 'visible',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 3,
-      },
-    }),
-  },
-  itemCardContent: {
-    padding: 20,
-  },
-  itemRow: {
-    marginBottom: 16,
-  },
-  itemInput: {
-    backgroundColor: '#FAFAFA',
-  },
-  inputContent: {
-    fontSize: 16,
-  },
-  // Date Row
-  dateRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  dateIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: `${THEME_COLORS.primary}15`,
-    justifyContent: 'center',
-    alignItems: 'center',
-    ...(isRTL ? { marginLeft: 12 } : { marginRight: 12 }),
-  },
-  dateInfo: {
-    flex: 1,
-  },
-  dateLabel: {
-    fontSize: 12,
-    color: '#757575',
-    marginBottom: 4,
-    fontWeight: '500',
-  },
-  dateValue: {
-    fontSize: 16,
-    color: '#1A1A1A',
-    fontWeight: '600',
-  },
-  // Delete Button
-  deleteButtonContainer: {
-    marginTop: 8,
-    alignItems: 'flex-start',
-  },
-  deleteButton: {
-    margin: 0,
-    padding: 0,
-  },
-  deleteButtonLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  // Fixed Save Button Container
-  fixedSaveButtonContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    paddingTop: 12,
-    backgroundColor: 'transparent',
-  },
-  // Save Button
-  saveButtonCard: {
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    ...Platform.select({
-      ios: {
-        shadowColor: THEME_COLORS.primary,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.12,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 4,
-      },
-    }),
-  },
-  saveButtonCardContent: {
-    padding: 0,
-  },
-  saveButton: {
-    margin: 0,
-  },
-  saveButtonContent: {
-    paddingVertical: 10,
-  },
-  saveButtonLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-    letterSpacing: 0.2,
-  },
-  // Modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end', // Modal positioning at bottom - not RTL dependent
-  },
-  modalContent: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingBottom: 20,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-  },
-  iosDatePicker: {
-    width: '100%',
-    height: 200,
-  },
-});
+    container: {
+      flex: 1,
+    },
+    content: {
+      flex: 1,
+    },
+    scrollContent: {
+      padding: 20,
+      paddingTop: 60,
+      paddingBottom: 32,
+    },
+    backButtonContainer: {
+      position: 'absolute',
+      top: 8,
+      left: 8,
+      zIndex: 10,
+    },
+    backButton: {
+      backgroundColor: 'rgba(255, 255, 255, 0.9)',
+      margin: 0,
+    },
+    // Hero Section
+    heroSection: {
+      alignItems: 'center',
+      marginBottom: 20,
+      paddingTop: 4,
+      width: '100%',
+    },
+    iconContainer: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: `${THEME_COLORS.primary}15`,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 12,
+    },
+    heroTitle: {
+      fontSize: 22,
+      fontWeight: '700',
+      color: '#1A1A1A',
+      marginBottom: 8,
+      textAlign: 'center',
+      letterSpacing: 0.15,
+      width: '100%',
+    },
+    heroSubtitle: {
+      fontSize: 14,
+      lineHeight: 20,
+      color: '#757575',
+      textAlign: 'center',
+      paddingHorizontal: 8,
+      width: '100%',
+    },
+    heroTip: {
+      fontSize: 13,
+      color: '#EF4444', // Softer red
+      textAlign: 'center',
+      width: '100%',
+      marginTop: 8,
+      fontWeight: '500',
+    },
+    aiUsageContainer: {
+      marginBottom: 16,
+    },
+    aiUsageText: {
+      fontSize: 13,
+      color: '#4B5563',
+    },
+    // Pick Button
+    pickButtonCard: {
+      marginBottom: 24,
+      borderRadius: 16,
+      backgroundColor: '#FFFFFF',
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.08,
+          shadowRadius: 8,
+        },
+        android: {
+          elevation: 2,
+        },
+      }),
+    },
+    pickButtonContent: {
+      padding: 0,
+    },
+    pickButton: {
+      margin: 0,
+    },
+    pickButtonContentStyle: {
+      paddingVertical: 12,
+    },
+    pickButtonLabel: {
+      fontSize: 17,
+      fontWeight: '600',
+      letterSpacing: 0.3,
+    },
+    trialHint: {
+      fontSize: 13,
+      color: '#757575',
+      marginTop: 8,
+      textAlign: 'center',
+      lineHeight: 18,
+    },
+    // Analyzing State
+    analyzingCard: {
+      marginBottom: 24,
+      borderRadius: 16,
+      backgroundColor: '#F8F9FA',
+    },
+    analyzingContent: {
+      alignItems: 'center',
+      paddingVertical: 32,
+      paddingHorizontal: 24,
+    },
+    analyzingText: {
+      marginTop: 16,
+      fontSize: 18,
+      fontWeight: '600',
+      color: '#1A1A1A',
+    },
+    analyzingSubtext: {
+      marginTop: 8,
+      fontSize: 14,
+      color: '#757575',
+    },
+    // Items Container
+    itemsContainer: {
+      marginTop: 8,
+    },
+    itemsHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 20,
+      gap: 8,
+    },
+    itemsTitle: {
+      fontSize: 22,
+      fontWeight: '700',
+      color: '#1A1A1A',
+      letterSpacing: 0.15,
+    },
+    // Item Card
+    itemCard: {
+      marginBottom: 16,
+      borderRadius: 16,
+      backgroundColor: '#FFFFFF',
+      position: 'relative',
+      overflow: 'visible',
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.06,
+          shadowRadius: 8,
+        },
+        android: {
+          elevation: 3,
+        },
+      }),
+    },
+    itemCardContent: {
+      padding: 20,
+    },
+    itemRow: {
+      marginBottom: 16,
+    },
+    itemInput: {
+      backgroundColor: '#FAFAFA',
+    },
+    inputContent: {
+      fontSize: 16,
+    },
+    // Date Row
+    dateRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 16,
+      backgroundColor: '#F8F9FA',
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: '#E0E0E0',
+    },
+    dateIconContainer: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: `${THEME_COLORS.primary}15`,
+      justifyContent: 'center',
+      alignItems: 'center',
+      ...(isRTL ? { marginLeft: 12 } : { marginRight: 12 }),
+    },
+    dateInfo: {
+      flex: 1,
+    },
+    dateLabel: {
+      fontSize: 12,
+      color: '#757575',
+      marginBottom: 4,
+      fontWeight: '500',
+    },
+    dateValue: {
+      fontSize: 16,
+      color: '#1A1A1A',
+      fontWeight: '600',
+    },
+    // Delete Button
+    deleteButtonContainer: {
+      marginTop: 8,
+      alignItems: 'flex-start',
+    },
+    deleteButton: {
+      margin: 0,
+      padding: 0,
+    },
+    deleteButtonLabel: {
+      fontSize: 14,
+      fontWeight: '500',
+    },
+    // Fixed Save Button Container
+    fixedSaveButtonContainer: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      paddingHorizontal: 20,
+      paddingBottom: 20,
+      paddingTop: 12,
+      backgroundColor: 'transparent',
+    },
+    // Save Button
+    saveButtonCard: {
+      borderRadius: 12,
+      backgroundColor: '#FFFFFF',
+      ...Platform.select({
+        ios: {
+          shadowColor: THEME_COLORS.primary,
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.12,
+          shadowRadius: 8,
+        },
+        android: {
+          elevation: 4,
+        },
+      }),
+    },
+    saveButtonCardContent: {
+      padding: 0,
+    },
+    saveButton: {
+      margin: 0,
+    },
+    saveButtonContent: {
+      paddingVertical: 10,
+    },
+    saveButtonLabel: {
+      fontSize: 15,
+      fontWeight: '600',
+      letterSpacing: 0.2,
+    },
+    // Modal
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      justifyContent: 'flex-end', // Modal positioning at bottom - not RTL dependent
+    },
+    modalContent: {
+      backgroundColor: '#FFFFFF',
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      paddingBottom: 20,
+    },
+    modalHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      padding: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: '#E0E0E0',
+    },
+    iosDatePicker: {
+      width: '100%',
+      height: 200,
+    },
+  });
 }
 

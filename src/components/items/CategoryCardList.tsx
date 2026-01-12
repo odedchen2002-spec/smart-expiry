@@ -2,16 +2,15 @@ import { useLanguage } from '@/context/LanguageContext';
 import { STATUS_COLORS, THEME_COLORS } from '@/lib/constants/colors';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
 import { useDatePickerStyle } from '@/lib/hooks/useDatePickerStyle';
+import { useSubscription } from '@/lib/hooks/useSubscription';
 import { deleteItem, updateItem } from '@/lib/supabase/mutations/items';
-import { groupItemsByCategory } from '@/lib/utils/groupByCategory';
-import { getDefaultCategory } from '@/lib/supabase/queries/categories';
 import { getRtlContainerStyles, getRtlTextStyles } from '@/lib/utils/rtlStyles';
 import type { Database } from '@/types/database';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { differenceInCalendarDays, format } from 'date-fns';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -20,6 +19,7 @@ import {
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -27,6 +27,7 @@ import {
   View,
 } from 'react-native';
 import { ActivityIndicator, Button, IconButton, Menu, useTheme } from 'react-native-paper';
+import { EmptyProductState } from './EmptyProductState';
 
 type Item = Database['public']['Views']['items_with_details']['Row'];
 
@@ -40,6 +41,18 @@ interface CategoryCardListProps {
   emptyMessage?: string;
   sortDirection?: 'asc' | 'desc';
   showDaysRemaining?: boolean;
+  /** Show expiry action menu items (sold/thrown) instead of update date button */
+  showExpiryActions?: boolean;
+  /** Called when user marks item as sold/finished - requires showExpiryActions=true */
+  onSoldFinished?: (item: Item) => void;
+  /** Called when user marks item as thrown - requires showExpiryActions=true */
+  onThrown?: (item: Item) => void;
+  /** Called when user deletes an item - for optimistic UI updates */
+  onDelete?: (item: Item) => void;
+  /** Whether filters are active (shows filter-specific empty state) */
+  hasActiveFilters?: boolean;
+  /** Called before navigating to product details (for preserving parent screen state) */
+  onBeforeNavigate?: () => void;
 }
 
 const getStatusColor = (status?: string | null) => {
@@ -92,9 +105,12 @@ interface AnimatedItemRowProps {
   daysRemaining?: number;
   isFirstInCategory?: boolean;
   menuResetCounter?: Map<string, number>;
+  showExpiryActions?: boolean;
+  onSoldFinished?: (product: Item) => void;
+  onThrown?: (product: Item) => void;
 }
 
-function AnimatedItemRow({
+const AnimatedItemRowMemo = React.memo(function AnimatedItemRow({
   product,
   isDeleting,
   showCalendarButton,
@@ -119,6 +135,9 @@ function AnimatedItemRow({
   daysRemaining = 0,
   isFirstInCategory = false,
   menuResetCounter = new Map(),
+  showExpiryActions = false,
+  onSoldFinished,
+  onThrown,
 }: AnimatedItemRowProps) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const [isPressed, setIsPressed] = useState(false);
@@ -218,20 +237,6 @@ function AnimatedItemRow({
           </View>
           {!isViewer && (
             <View style={[styles.actions, rtlContainer]}>
-              {showCalendarButton && !isLocked && (
-                <TouchableOpacity
-                  activeOpacity={0.5}
-                  onPress={(e) => onOpenDatePicker(product, e)}
-                  style={styles.actionIconTouchable}
-                >
-                  <IconButton
-                    icon="calendar-edit"
-                    iconColor="#4A90E2"
-                    size={20}
-                    style={styles.actionIcon}
-                  />
-                </TouchableOpacity>
-              )}
               <Menu
                 key={`${product.id}-${menuResetCounter.get(product.id) || 0}`}
                 visible={menuVisible}
@@ -255,7 +260,8 @@ function AnimatedItemRow({
                 }
                 contentStyle={[styles.menuContent, { direction: isRTL ? 'ltr' : 'rtl' }]}
               >
-                {!isLocked && (
+                {/* Edit - show when NOT in expiry actions mode and not locked */}
+                {!showExpiryActions && !isLocked && (
                   <Menu.Item
                     onPress={(e) => {
                       onMenuDismiss();
@@ -267,16 +273,45 @@ function AnimatedItemRow({
                     contentStyle={styles.menuItemContent}
                   />
                 )}
-                <Menu.Item
-                  onPress={(e) => {
-                    onMenuDismiss();
-                    onDelete(product, e);
-                  }}
-                  title={t('common.delete') || 'מחק'}
-                  leadingIcon="delete-outline"
-                  titleStyle={[styles.menuItemTitle, styles.menuItemTitleDelete, rtlText]}
-                  contentStyle={styles.menuItemContent}
-                />
+                {/* Sold/Finished - show whenever onSoldFinished is provided */}
+                {onSoldFinished && (
+                  <Menu.Item
+                    onPress={() => {
+                      onMenuDismiss();
+                      onSoldFinished(product);
+                    }}
+                    title={t('expiryAlert.soldFinished') || 'נמכר / נגמר'}
+                    leadingIcon="check-circle-outline"
+                    titleStyle={[styles.menuItemTitle, styles.menuItemTitleSold, rtlText]}
+                    contentStyle={styles.menuItemContent}
+                  />
+                )}
+                {/* Thrown - only show in expiry actions mode */}
+                {showExpiryActions && onThrown && (
+                  <Menu.Item
+                    onPress={() => {
+                      onMenuDismiss();
+                      onThrown(product);
+                    }}
+                    title={t('expiryAlert.thrown') || 'נזרק'}
+                    leadingIcon="trash-can-outline"
+                    titleStyle={[styles.menuItemTitle, styles.menuItemTitleThrown, rtlText]}
+                    contentStyle={styles.menuItemContent}
+                  />
+                )}
+                {/* Delete - show when NOT in expiry actions mode */}
+                {!showExpiryActions && (
+                  <Menu.Item
+                    onPress={(e) => {
+                      onMenuDismiss();
+                      onDelete(product, e);
+                    }}
+                    title={t('common.delete') || 'מחק'}
+                    leadingIcon="delete-outline"
+                    titleStyle={[styles.menuItemTitle, styles.menuItemTitleDelete, rtlText]}
+                    contentStyle={styles.menuItemContent}
+                  />
+                )}
               </Menu>
             </View>
           )}
@@ -330,7 +365,18 @@ function AnimatedItemRow({
       </Animated.View>
     </Pressable>
   );
-}
+}, (prevProps, nextProps) => {
+  // Only re-render if relevant props changed
+  return (
+    prevProps.product.id === nextProps.product.id &&
+    prevProps.product.product_name === nextProps.product.product_name &&
+    prevProps.product.expiry_date === nextProps.product.expiry_date &&
+    prevProps.product.status === nextProps.product.status &&
+    prevProps.menuVisible === nextProps.menuVisible &&
+    prevProps.isDeleting === nextProps.isDeleting &&
+    prevProps.daysRemaining === nextProps.daysRemaining
+  );
+});
 
 export function CategoryCardList({
   items,
@@ -342,24 +388,35 @@ export function CategoryCardList({
   emptyMessage,
   sortDirection = 'asc',
   showDaysRemaining = false,
+  showExpiryActions = false,
+  onSoldFinished,
+  onThrown,
+  onDelete,
+  hasActiveFilters = false,
+  onBeforeNavigate,
 }: CategoryCardListProps) {
   const router = useRouter();
   const { t, isRTL } = useLanguage();
   const { datePickerStyle, loading: datePickerStyleLoading } = useDatePickerStyle();
   const { isViewer } = useActiveOwner();
+  const { subscription } = useSubscription();
   const theme = useTheme();
-  
-  const styles = createStyles(isRTL);
-  const rtlContainer = getRtlContainerStyles(isRTL);
-  const rtlText = getRtlTextStyles(isRTL);
-  const rtlTextDate = getRtlTextStyles(isRTL, 'date');
+
+  const styles = useMemo(() => createStyles(isRTL), [isRTL]);
+  const rtlContainer = useMemo(() => getRtlContainerStyles(isRTL), [isRTL]);
+  const rtlText = useMemo(() => getRtlTextStyles(isRTL), [isRTL]);
+  const rtlTextDate = useMemo(() => getRtlTextStyles(isRTL, 'date'), [isRTL]);
   const [deletingItems, setDeletingItems] = useState<Set<string>>(new Set());
   const [datePickerItem, setDatePickerItem] = useState<Item | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [updatingDate, setUpdatingDate] = useState(false);
-  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [menuVisibleItemId, setMenuVisibleItemId] = useState<string | null>(null);
   const [menuResetCounter, setMenuResetCounter] = useState<Map<string, number>>(new Map());
+
+  // Jump buttons state
+  const flatListRef = useRef<FlatList<Item>>(null);
+  const [showJumpToTop, setShowJumpToTop] = useState(false);
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
 
   const minDate = useMemo(() => {
     const today = new Date();
@@ -367,8 +424,22 @@ export function CategoryCardList({
     return today;
   }, []);
 
-  const sections = useMemo(() => {
-    return groupItemsByCategory(items, { sortDirection }).filter((section) => section.data.length > 0);
+  // Sort items by expiry date (stable sort - items with same date maintain consistent order by ID)
+  const sortedItems = useMemo(() => {
+    return [...items].sort((a, b) => {
+      const dateA = a.expiry_date ? new Date(a.expiry_date).getTime() : 0;
+      const dateB = b.expiry_date ? new Date(b.expiry_date).getTime() : 0;
+      
+      // Primary sort: by date
+      const dateDiff = sortDirection === 'asc' ? dateA - dateB : dateB - dateA;
+      
+      // Secondary sort: if dates are equal, sort by ID for stable ordering
+      if (dateDiff === 0) {
+        return a.id.localeCompare(b.id);
+      }
+      
+      return dateDiff;
+    });
   }, [items, sortDirection]);
 
   const currentExpiryDate = useMemo(() => {
@@ -386,19 +457,49 @@ export function CategoryCardList({
     }
   }, [datePickerItem, currentExpiryDate]);
 
+  // Track scroll position for jump buttons
+  const handleScroll = useCallback((event: { nativeEvent: { contentOffset: { y: number }, contentSize: { height: number }, layoutMeasurement: { height: number } } }) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const scrollY = contentOffset.y;
+    const maxScroll = contentSize.height - layoutMeasurement.height;
+
+    // Show "jump to top" when scrolled down more than 300px
+    const shouldShowTop = scrollY > 300;
+    // Show "jump to bottom" when not near the bottom (more than 300px from bottom)
+    const shouldShowBottom = maxScroll > 300 && scrollY < maxScroll - 300;
+
+    setShowJumpToTop(shouldShowTop);
+    setShowJumpToBottom(shouldShowBottom);
+  }, []);
+
+  const handleJumpToTop = useCallback(() => {
+    flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, []);
+
+  const handleJumpToBottom = useCallback(() => {
+    flatListRef.current?.scrollToEnd({ animated: true });
+  }, []);
+
   const showLockedModal = () => {
+    // Check if the user is on Pro plan by looking at subscription
+    const isPro = subscription?.plan === 'pro' && subscription?.isPaidActive;
+
     Alert.alert(
       t('common.upgradeRequired') || 'שדרוג נדרש',
-      t('common.upgradeRequiredMessage') || 'חרגת מכמות המוצרים המותרת בתוכנית החינמית. כדי לערוך את כל המוצרים ולקבל התראות ללא הגבלה, שדרג לתוכנית Pro.'
+      isPro
+        ? (t('common.upgradeRequiredMessagePro') || 'הגעת למגבלת 2,000 המוצרים של תוכנית Pro. כדי להמשיך להוסיף מוצרים, שדרג לתוכנית Pro+ שמאפשרת נפח עבודה גבוה יותר.')
+        : (t('common.upgradeRequiredMessage') || 'חרגת מכמות המוצרים המותרת בתוכנית החינמית. כדי לערוך את כל המוצרים ולקבל התראות ללא הגבלה, שדרג לתוכנית Pro.')
     );
   };
 
-  const handleItemPress = (item: Item) => {
+  const handleItemPress = useCallback((item: Item) => {
     if (isViewer) return;
     if (item.is_plan_locked) {
       showLockedModal();
       return;
     }
+    // Notify parent before navigating (for preserving filters etc.)
+    onBeforeNavigate?.();
     // Pass item data as route params for instant rendering
     router.push({
       pathname: `/item/${item.id}` as any,
@@ -413,7 +514,7 @@ export function CategoryCardList({
         productId: item.product_id || '',
       },
     } as any);
-  };
+  }, [isViewer, router, onBeforeNavigate]);
 
   const isExpiringSoon = (item: Item) => {
     if (!item.expiry_date) {
@@ -469,13 +570,15 @@ export function CategoryCardList({
     }
   };
 
-  const handleEdit = (item: Item, e: any) => {
+  const handleEdit = useCallback((item: Item, e: any) => {
     e.stopPropagation();
     if (isViewer) return;
     if (item.is_plan_locked) {
       showLockedModal();
       return;
     }
+    // Notify parent before navigating (for preserving filters etc.)
+    onBeforeNavigate?.();
     // Pass item data as route params for instant rendering
     router.push({
       pathname: '/add' as any,
@@ -490,12 +593,12 @@ export function CategoryCardList({
         productId: item.product_id || '',
       },
     } as any);
-  };
+  }, [isViewer, router, onBeforeNavigate]);
 
-  const handleDelete = async (item: Item, e: any) => {
+  const handleDelete = useCallback(async (item: Item, e: any) => {
     e.stopPropagation();
     if (isViewer) return;
-    
+
     Alert.alert(
       t('item.delete') || 'מחק',
       t('item.deleteConfirm') || 'האם אתה בטוח שברצונך למחוק את המוצר הזה?',
@@ -508,6 +611,13 @@ export function CategoryCardList({
           text: t('item.delete') || 'מחק',
           style: 'destructive',
           onPress: async () => {
+            // If onDelete callback provided, use optimistic UI update
+            if (onDelete) {
+              onDelete(item);
+              return;
+            }
+
+            // Fallback: traditional delete with loading state
             try {
               setDeletingItems((prev) => new Set(prev).add(item.id));
               await deleteItem(item.id);
@@ -528,9 +638,9 @@ export function CategoryCardList({
         },
       ]
     );
-  };
+  }, [isViewer, t, onDelete, onRefresh, setDeletingItems]);
 
-  const handleOpenDatePicker = (item: Item, e?: any) => {
+  const handleOpenDatePicker = useCallback((item: Item, e?: any) => {
     e?.stopPropagation?.();
     if (isViewer) return;
     if (item.is_plan_locked) {
@@ -545,7 +655,7 @@ export function CategoryCardList({
       setSelectedDate(isNaN(parsed.getTime()) ? minDate : parsed);
     }
     setDatePickerItem(item);
-  };
+  }, [isViewer, minDate, setSelectedDate, setDatePickerItem]);
 
   const handleCancelDatePicker = () => {
     setDatePickerItem(null);
@@ -572,7 +682,7 @@ export function CategoryCardList({
 
   const handleUpdateExpiryDate = async () => {
     if (!datePickerItem) return;
-    
+
     try {
       setUpdatingDate(true);
       const safeDate = selectedDate < minDate ? minDate : selectedDate;
@@ -590,124 +700,76 @@ export function CategoryCardList({
     }
   };
 
-  const toggleCategory = (title: string) => {
-    setCollapsedCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(title)) {
-        next.delete(title);
-      } else {
-        next.add(title);
-      }
-      return next;
-    });
-  };
+  const renderItem = ({ item: product, index }: { item: Item; index: number }) => {
+    const isDeleting = deletingItems.has(product.id);
+    const showCalendarButton = isExpiringSoon(product);
+    const calculatedStatus = getItemStatus(product);
+    const isLocked = product.is_plan_locked;
 
-  const renderCategoryCard = ({ item, index }: any) => {
-    const isCollapsed = collapsedCategories.has(item.title);
+    // Calculate days remaining
+    let daysRemaining = 0;
+    if (product.expiry_date) {
+      try {
+        const expiry = new Date(product.expiry_date);
+        expiry.setHours(0, 0, 0, 0);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        daysRemaining = differenceInCalendarDays(expiry, today);
+      } catch {
+        daysRemaining = 0;
+      }
+    }
+
+    // Show "ימים" label only for the first item
+    const isFirstItem = index === 0;
+
     return (
-      <View>
-        {/* Separator line ABOVE each category block (not the first one) */}
-        {index > 0 && <View style={styles.categorySeparator} />}
-        <View style={[styles.categoryCard, isCollapsed && styles.categoryCardCollapsed]}>
-          <TouchableOpacity
-          style={styles.categoryHeaderRow}
-          activeOpacity={0.8}
-          onPress={() => toggleCategory(item.title)}
-        >
-          <View style={styles.categoryHeaderText}>
-            <Text style={[styles.categoryTitle, rtlText]} numberOfLines={1}>
-              {item.title === getDefaultCategory() ? t('categories.uncategorized') : item.title}
-            </Text>
-            <Text style={[styles.categorySubtitle, rtlText]} numberOfLines={1}>
-              {item.data.length} {item.data.length === 1 ? t('common.product') : t('common.products')}
-            </Text>
-          </View>
-          <IconButton
-            icon={isCollapsed ? (isRTL ? 'chevron-left' : 'chevron-right') : 'chevron-down'}
-            size={20}
-            iconColor="#9CA3AF"
-            style={styles.categoryToggleIcon}
-          />
-        </TouchableOpacity>
-        {!isCollapsed && (
-          <FlatList
-            data={item.data}
-            keyExtractor={(product) => product.id}
-            renderItem={({ item: product, index }) => {
-            const isDeleting = deletingItems.has(product.id);
-            const showCalendarButton = isExpiringSoon(product);
-            const calculatedStatus = getItemStatus(product);
-            const isLocked = product.is_plan_locked;
-            
-            // Calculate days remaining
-            let daysRemaining = 0;
-            if (product.expiry_date) {
-              try {
-                const expiry = new Date(product.expiry_date);
-                expiry.setHours(0, 0, 0, 0);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                daysRemaining = differenceInCalendarDays(expiry, today);
-              } catch {
-                daysRemaining = 0;
-              }
-            }
-            
-            // Show "ימים" label only for the first item in the category
-            const isFirstInCategory = index === 0;
-            
-            return (
-              <AnimatedItemRow
-                product={product}
-                isDeleting={isDeleting}
-                showCalendarButton={showCalendarButton}
-                calculatedStatus={calculatedStatus}
-                isLocked={isLocked}
-                isViewer={isViewer}
-                isRTL={isRTL}
-                rtlContainer={rtlContainer}
-                rtlText={rtlText}
-                rtlTextDate={rtlTextDate}
-                styles={styles}
-                onPress={handleItemPress}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
-                onOpenDatePicker={handleOpenDatePicker}
-                getStatusColor={getStatusColor}
-                menuVisible={menuVisibleItemId === product.id}
-                onMenuDismiss={() => {
-                  setMenuVisibleItemId(null);
-                  // Increment counter for this menu to force re-render when reopening
-                  setMenuResetCounter((prev) => {
-                    const next = new Map(prev);
-                    next.set(product.id, (next.get(product.id) || 0) + 1);
-                    return next;
-                  });
-                }}
-                onMenuPress={(e: any) => {
-                  e.stopPropagation();
-                  // Always set the menu ID - if it's already open, this will close it via toggle
-                  const isCurrentlyOpen = menuVisibleItemId === product.id;
-                  setMenuVisibleItemId(isCurrentlyOpen ? null : product.id);
-                }}
-                t={t}
-                showDaysRemaining={showDaysRemaining}
-                daysRemaining={daysRemaining}
-                isFirstInCategory={isFirstInCategory}
-                menuResetCounter={menuResetCounter}
-              />
-            );
-          }}
-            ItemSeparatorComponent={() => <View style={styles.itemDivider} />}
-            scrollEnabled={false}
-          />
-        )}
-        </View>
-      </View>
+      <AnimatedItemRowMemo
+        product={product}
+        isDeleting={isDeleting}
+        showCalendarButton={showCalendarButton}
+        calculatedStatus={calculatedStatus}
+        isLocked={isLocked}
+        isViewer={isViewer}
+        isRTL={isRTL}
+        rtlContainer={rtlContainer}
+        rtlText={rtlText}
+        rtlTextDate={rtlTextDate}
+        styles={styles}
+        onPress={handleItemPress}
+        onEdit={handleEdit}
+        onDelete={handleDelete}
+        onOpenDatePicker={handleOpenDatePicker}
+        getStatusColor={getStatusColor}
+        menuVisible={menuVisibleItemId === product.id}
+        onMenuDismiss={() => {
+          setMenuVisibleItemId(null);
+          // Increment counter for this menu to force re-render when reopening
+          setMenuResetCounter((prev) => {
+            const next = new Map(prev);
+            next.set(product.id, (next.get(product.id) || 0) + 1);
+            return next;
+          });
+        }}
+        onMenuPress={(e: any) => {
+          e.stopPropagation();
+          // Always set the menu ID - if it's already open, this will close it via toggle
+          const isCurrentlyOpen = menuVisibleItemId === product.id;
+          setMenuVisibleItemId(isCurrentlyOpen ? null : product.id);
+        }}
+        t={t}
+        showDaysRemaining={showDaysRemaining}
+        daysRemaining={daysRemaining}
+        isFirstInCategory={isFirstItem}
+        menuResetCounter={menuResetCounter}
+        showExpiryActions={showExpiryActions}
+        onSoldFinished={onSoldFinished}
+        onThrown={onThrown}
+      />
     );
   };
 
-  if (loading && sections.length === 0) {
+  if (loading && sortedItems.length === 0) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" />
@@ -715,45 +777,97 @@ export function CategoryCardList({
     );
   }
 
-  if (error) {
+  // Only show error if we have NO cached items to display
+  // If we have items from cache, show them even if there was a network error
+  if (error && sortedItems.length === 0) {
+    // Check if it's a network error - show friendlier message
+    const isNetworkError = error.message?.toLowerCase().includes('network');
     return (
       <View style={styles.center}>
-        <Text style={styles.errorTitle}>אירעה שגיאה</Text>
-        <Text style={styles.errorMessage}>{error.message}</Text>
+        <Text style={styles.errorTitle}>
+          {isNetworkError ? 'אין חיבור לאינטרנט' : 'אירעה שגיאה'}
+        </Text>
+        <Text style={styles.errorMessage}>
+          {isNetworkError
+            ? 'לא ניתן לטעון נתונים במצב אופליין'
+            : error.message}
+        </Text>
       </View>
     );
   }
 
-  if (!loading && sections.length === 0) {
-    const message =
-      searchQuery?.length && !items.length
-        ? t('common.noResults')
-        : emptyMessage || t('common.noProductsToDisplay');
+  if (!loading && sortedItems.length === 0) {
+    // Use smart empty state with action buttons
+    const isSearchResult = Boolean(searchQuery?.length);
 
     return (
-      <View style={styles.center}>
-        <Text style={styles.emptyText}>{message}</Text>
-      </View>
-    );
-  }
-
-  return (
-    <>
-      <FlatList
-        data={sections}
-        keyExtractor={(section) => section.title}
-        renderItem={(props) => renderCategoryCard({ ...props, index: props.index })}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        initialNumToRender={3}
-        maxToRenderPerBatch={5}
-        windowSize={6}
+      <ScrollView
+        contentContainerStyle={styles.emptyScrollContent}
         refreshControl={
           onRefresh ? (
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           ) : undefined
         }
-      />
+      >
+        <EmptyProductState
+          isSearchResult={isSearchResult}
+          searchQuery={searchQuery}
+          title={emptyMessage}
+          hideActions={showExpiryActions}
+          isFilteredResult={hasActiveFilters && !isSearchResult}
+        />
+      </ScrollView>
+    );
+  }
+
+  return (
+    <>
+      <View style={styles.listWrapper}>
+        <FlatList
+          ref={flatListRef}
+          data={sortedItems}
+          keyExtractor={(item) => `${item.id}-${(item as any)._deleted ? 'deleted' : 'active'}`}
+          renderItem={renderItem}
+          ItemSeparatorComponent={() => <View style={styles.itemDivider} />}
+          contentContainerStyle={[
+            styles.flatListContent,
+            { paddingBottom: sortedItems.length > 8 ? 100 : 24 }
+          ]}
+          showsVerticalScrollIndicator={true}
+          initialNumToRender={10}
+          maxToRenderPerBatch={10}
+          windowSize={10}
+          onScroll={handleScroll}
+          scrollEventThrottle={100}
+          refreshControl={
+            onRefresh ? (
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            ) : undefined
+          }
+        />
+
+        {/* Jump to Top Button */}
+        {showJumpToTop && sortedItems.length > 15 && (
+          <TouchableOpacity
+            style={[styles.jumpButton, styles.jumpButtonTop]}
+            onPress={handleJumpToTop}
+            activeOpacity={0.7}
+          >
+            <MaterialCommunityIcons name="chevron-up" size={20} color="#666" />
+          </TouchableOpacity>
+        )}
+
+        {/* Jump to Bottom Button */}
+        {showJumpToBottom && sortedItems.length > 15 && (
+          <TouchableOpacity
+            style={[styles.jumpButton, styles.jumpButtonBottom]}
+            onPress={handleJumpToBottom}
+            activeOpacity={0.7}
+          >
+            <MaterialCommunityIcons name="chevron-down" size={20} color="#666" />
+          </TouchableOpacity>
+        )}
+      </View>
       {datePickerItem && (
         <Modal
           visible={!!datePickerItem}
@@ -768,10 +882,10 @@ export function CategoryCardList({
                   <View style={[styles.modalHeader, { borderBottomColor: theme.colors.surfaceVariant }]}>
                     <View style={[styles.modalHeaderContent, rtlContainer]}>
                       <View style={[styles.modalIconContainer, { backgroundColor: THEME_COLORS.primary + '15' }]}>
-                        <MaterialCommunityIcons 
-                          name="calendar-edit" 
-                          size={24} 
-                          color={THEME_COLORS.primary} 
+                        <MaterialCommunityIcons
+                          name="calendar-edit"
+                          size={24}
+                          color={THEME_COLORS.primary}
                         />
                       </View>
                       <View style={styles.modalTitleContainer}>
@@ -791,8 +905,8 @@ export function CategoryCardList({
                           value={selectedDate < minDate ? minDate : selectedDate}
                           mode="date"
                           display={
-                            datePickerStyle === 'calendar' 
-                              ? (Platform.OS === 'ios' ? 'inline' : 'default')
+                            datePickerStyle === 'calendar'
+                              ? (Platform.OS === 'ios' ? 'compact' : 'default')
                               : (Platform.OS === 'ios' ? 'spinner' : 'default')
                           }
                           minimumDate={minDate}
@@ -841,11 +955,54 @@ export function CategoryCardList({
 }
 
 const createStyles = (isRTL: boolean) => StyleSheet.create({
+  listWrapper: {
+    flex: 1,
+    position: 'relative',
+  },
+  jumpButton: {
+    position: 'absolute',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+    alignSelf: 'center',
+    left: '50%',
+    marginLeft: -16, // Half of width to center
+  },
+  jumpButtonLTR: {
+    // Not used anymore since centered
+  },
+  jumpButtonRTL: {
+    // Not used anymore since centered
+  },
+  jumpButtonTop: {
+    top: 8,
+  },
+  jumpButtonBottom: {
+    bottom: 110,
+  },
   listContent: {
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 20,
-    gap: 8, // Tighter vertical spacing between category sections
+    gap: 8,
+  },
+  flatListContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    // paddingBottom is set dynamically based on item count
+    backgroundColor: '#FFFFFF',
+    borderRadius: 28,
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 100, // Space for floating tab bar
   },
   center: {
     flex: 1,
@@ -867,6 +1024,10 @@ const createStyles = (isRTL: boolean) => StyleSheet.create({
     fontSize: 16,
     opacity: 0.7,
     textAlign: 'center',
+  },
+  emptyScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
   },
   categoryCard: {
     backgroundColor: '#FFFFFF',
@@ -1210,6 +1371,12 @@ const createStyles = (isRTL: boolean) => StyleSheet.create({
   },
   menuItemTitleDelete: {
     color: '#F44336',
+  },
+  menuItemTitleSold: {
+    color: '#22C55E',
+  },
+  menuItemTitleThrown: {
+    color: '#EF4444',
   },
   daysRemainingText: {
     fontSize: 11,

@@ -3,28 +3,25 @@
  * Shows detailed information about a specific notification
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { useAuth } from '@/context/AuthContext';
+import { useLanguage } from '@/context/LanguageContext';
+import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
+import { getItems, ItemWithDetails } from '@/lib/supabase/queries/items';
+import { getNotificationHistory } from '@/lib/supabase/queries/notifications';
+import { getRtlContainerStyles, getRtlTextStyles } from '@/lib/utils/rtlStyles';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { format } from 'date-fns';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import {
+  ActivityIndicator,
   Appbar,
-  Text,
   Card,
   Chip,
   Divider,
-  ActivityIndicator,
+  Text,
 } from 'react-native-paper';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useLanguage } from '@/context/LanguageContext';
-import { useAuth } from '@/context/AuthContext';
-import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
-import { getNotificationHistory } from '@/lib/supabase/queries/notifications';
-import { getItems } from '@/lib/supabase/queries/items';
-import { getRtlTextStyles, getRtlContainerStyles } from '@/lib/utils/rtlStyles';
-import { format } from 'date-fns';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { Database } from '@/types/database';
-
-type Item = Database['public']['Views']['items_with_details']['Row'];
 
 interface NotificationItem {
   id: string;
@@ -48,7 +45,7 @@ export default function NotificationDetailsScreen() {
   const notificationId = Array.isArray(params?.id) ? params.id[0] : params?.id;
 
   const [notification, setNotification] = useState<NotificationItem | null>(null);
-  const [items, setItems] = useState<Item[]>([]);
+  const [items, setItems] = useState<ItemWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingItems, setLoadingItems] = useState(false);
   const [lastTappedAt, setLastTappedAt] = useState<string | null>(null);
@@ -158,9 +155,10 @@ export default function NotificationDetailsScreen() {
               endDate: targetDate,
               limit: 100,
             });
-            // Filter out resolved and expired items (same as notification logic)
+            // Filter out resolved items and locked items
+            // Keep expired items - those are what the notification was about!
             const activeItems = (notificationItems || []).filter(
-              item => item.status !== 'resolved' && item.status !== 'expired'
+              item => item.status !== 'resolved' && !item.is_plan_locked
             );
             setItems(activeItems);
           } catch (error) {
@@ -182,7 +180,7 @@ export default function NotificationDetailsScreen() {
   if (loading) {
     return (
       <View style={styles.container}>
-        <Appbar.Header>
+        <Appbar.Header style={{ backgroundColor: '#F5F5F5' }}>
           <Appbar.BackAction onPress={() => router.back()} />
           <Appbar.Content title={t('settings.notifications.details') || 'פרטי התראה'} />
         </Appbar.Header>
@@ -198,7 +196,7 @@ export default function NotificationDetailsScreen() {
   if (!notification) {
     return (
       <View style={styles.container}>
-        <Appbar.Header>
+        <Appbar.Header style={{ backgroundColor: '#F5F5F5' }}>
           <Appbar.BackAction onPress={() => router.back()} />
           <Appbar.Content title={t('settings.notifications.details') || 'פרטי התראה'} />
         </Appbar.Header>
@@ -215,7 +213,7 @@ export default function NotificationDetailsScreen() {
 
   return (
     <View style={styles.container}>
-      <Appbar.Header>
+      <Appbar.Header style={{ backgroundColor: '#F5F5F5' }}>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title={t('settings.notifications.details') || 'פרטי התראה'} />
       </Appbar.Header>
@@ -318,66 +316,68 @@ export default function NotificationDetailsScreen() {
           </Card.Content>
         </Card>
 
-        {/* Items Card */}
-        {notification.data?.targetDate && (
-          <Card style={styles.itemsCard}>
-            <Card.Content style={styles.itemsCardContent}>
-              <Text
-                variant="titleMedium"
-                style={[styles.sectionTitle, rtlTextCenter]}
-              >
-                {t('settings.notifications.items') || 'מוצרים בהתראה'}
-              </Text>
+        {/* Items Card - Show products that this notification is about */}
+        <Card style={styles.itemsCard}>
+          <Card.Content style={styles.itemsCardContent}>
+            <Text
+              variant="titleMedium"
+              style={[styles.sectionTitle, rtlTextCenter]}
+            >
+              {t('settings.notifications.items') || 'מוצרים בהתראה'}
+            </Text>
 
-              {loadingItems ? (
-                <View style={styles.itemsLoadingContainer}>
-                  <ActivityIndicator size="small" color="#42A5F5" />
-                  <Text variant="bodySmall" style={[styles.itemsLoadingText, rtlText]}>
-                    {t('common.loading') || 'טוען...'}
-                  </Text>
-                </View>
-              ) : items.length === 0 ? (
-                <Text variant="bodyMedium" style={[styles.noItemsText, rtlText]}>
-                  {t('settings.notifications.noItems') || 'לא נמצאו מוצרים'}
+            {!notification.data?.targetDate ? (
+              <Text variant="bodyMedium" style={[styles.noItemsText, rtlText]}>
+                {t('settings.notifications.noTargetDate') || 'אין נתוני מוצרים עבור התראה זו'}
+              </Text>
+            ) : loadingItems ? (
+              <View style={styles.itemsLoadingContainer}>
+                <ActivityIndicator size="small" color="#42A5F5" />
+                <Text variant="bodySmall" style={[styles.itemsLoadingText, rtlText]}>
+                  {t('common.loading') || 'טוען...'}
                 </Text>
-              ) : (
-                <View style={styles.itemsList}>
-                  {items.map((item) => (
-                    <TouchableOpacity
-                      key={item.id}
-                      onPress={() => router.push(`/item/${item.id}` as any)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={[styles.itemRow, getRtlContainerStyles(isRTL)]}>
-                        <View style={styles.itemInfo}>
-                          <Text
-                            variant="titleSmall"
-                            style={[styles.itemName, rtlText]}
-                            numberOfLines={1}
-                          >
-                            {item.product_name || t('item.name') || 'מוצר ללא שם'}
-                          </Text>
-                          <Text
-                            variant="bodySmall"
-                            style={[styles.itemExpiry, getRtlTextStyles(isRTL, 'date')]}
-                          >
-                            {format(new Date(item.expiry_date), 'd MMM yyyy')}
-                          </Text>
-                        </View>
-                        <View
-                          style={[
-                            styles.statusDot,
-                            { backgroundColor: getStatusColor(item.status) },
-                          ]}
-                        />
+              </View>
+            ) : items.length === 0 ? (
+              <Text variant="bodyMedium" style={[styles.noItemsText, rtlText]}>
+                {t('settings.notifications.noItems') || 'לא נמצאו מוצרים'}
+              </Text>
+            ) : (
+              <View style={styles.itemsList}>
+                {items.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    onPress={() => router.push(`/item/${item.id}` as any)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.itemRow, getRtlContainerStyles(isRTL)]}>
+                      <View style={styles.itemInfo}>
+                        <Text
+                          variant="titleSmall"
+                          style={[styles.itemName, rtlText]}
+                          numberOfLines={1}
+                        >
+                          {item.product_name || t('item.name') || 'מוצר ללא שם'}
+                        </Text>
+                        <Text
+                          variant="bodySmall"
+                          style={[styles.itemExpiry, getRtlTextStyles(isRTL, 'date')]}
+                        >
+                          {format(new Date(item.expiry_date), 'd MMM yyyy')}
+                        </Text>
                       </View>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-            </Card.Content>
-          </Card>
-        )}
+                      <View
+                        style={[
+                          styles.statusDot,
+                          { backgroundColor: getStatusColor(item.status) },
+                        ]}
+                      />
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </Card.Content>
+        </Card>
       </ScrollView>
     </View>
   );

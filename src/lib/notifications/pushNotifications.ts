@@ -11,6 +11,7 @@ import * as Device from 'expo-device';
 import { Platform, Alert } from 'react-native';
 import Constants from 'expo-constants';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabase/client';
 
 /**
  * Check if running in Expo Go (limited notification support)
@@ -230,6 +231,57 @@ export async function saveExpoPushToken({
       '[Notifications] Unexpected error while saving Expo push token',
       err,
     );
+  }
+}
+
+/**
+ * Remove push token for a user when signing out
+ * This prevents notifications from being sent to the old account
+ * Uses RPC function for reliable removal (bypasses RLS)
+ */
+export async function removeExpoPushToken(userId: string) {
+  try {
+    console.log('[Notifications] Removing push tokens for user:', userId);
+
+    // Try using RPC function first (most reliable, uses SECURITY DEFINER)
+    const { error: rpcError } = await supabase.rpc('remove_user_push_tokens', {
+      p_user_id: userId,
+    });
+
+    if (rpcError) {
+      console.warn('[Notifications] RPC remove_user_push_tokens failed, trying direct approach:', rpcError);
+      
+      // Fallback to direct approach if RPC fails
+      // Remove from user_devices table
+      const { error: devicesError } = await supabase
+        .from('user_devices')
+        .delete()
+        .eq('user_id', userId);
+
+      if (devicesError) {
+        console.error('[Notifications] Failed to remove from user_devices:', devicesError);
+      } else {
+        console.log('[Notifications] Removed push tokens from user_devices');
+      }
+
+      // Also clear push_token from user_preferences
+      const { error: prefsError } = await supabase
+        .from('user_preferences')
+        .update({ push_token: null })
+        .eq('user_id', userId);
+
+      if (prefsError) {
+        console.error('[Notifications] Failed to clear push_token from user_preferences:', prefsError);
+      } else {
+        console.log('[Notifications] Cleared push_token from user_preferences');
+      }
+    } else {
+      console.log('[Notifications] Successfully removed push tokens via RPC');
+    }
+
+    console.log('[Notifications] Push token removal completed for user:', userId);
+  } catch (err) {
+    console.error('[Notifications] Unexpected error removing push tokens:', err);
   }
 }
 

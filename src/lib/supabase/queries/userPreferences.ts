@@ -15,6 +15,7 @@ export interface UserPreferences {
   notification_hour: number | null;
   notification_minute: number | null;
   expiry_notify_enabled: boolean | null;
+  preferred_language: string | null; // 'he' or 'en'
   updated_at: string | null;
   created_at: string | null;
 }
@@ -131,6 +132,7 @@ export async function getNotificationSettingsFromPreferences(
 /**
  * Save notification settings to user preferences
  * Always saves notification_time (HH:mm) in addition to hour/minute
+ * Also saves push_token if provided (required for Edge Function to send notifications)
  */
 export async function saveNotificationSettingsToPreferences(
   userId: string,
@@ -140,6 +142,7 @@ export async function saveNotificationSettingsToPreferences(
     notification_hour: number;
     notification_minute: number;
     timezone: string;
+    push_token?: string; // Optional - if provided, saved to user_preferences for Edge Function
   }
 ): Promise<UserPreferences> {
   const now = new Date().toISOString();
@@ -147,7 +150,7 @@ export async function saveNotificationSettingsToPreferences(
   // Build notification_time string from hour/minute (HH:mm format with zero-padding)
   const notificationTime = `${settings.notification_hour.toString().padStart(2, '0')}:${settings.notification_minute.toString().padStart(2, '0')}`;
   
-  const upsertPayload = {
+  const upsertPayload: Record<string, any> = {
     user_id: userId,
     expiry_notify_enabled: settings.expiry_notify_enabled,
     notification_days_before: settings.notification_days_before,
@@ -157,6 +160,11 @@ export async function saveNotificationSettingsToPreferences(
     timezone: settings.timezone,
     updated_at: now,
   };
+  
+  // Include push_token if provided (required for Edge Function to find this user)
+  if (settings.push_token) {
+    upsertPayload.push_token = settings.push_token;
+  }
 
   // Log upsert payload (dev mode only to avoid excessive logs)
   if (__DEV__) {
@@ -206,5 +214,36 @@ export async function saveNotificationSettingsToPreferences(
   }
 
   return savedPrefs;
+}
+
+/**
+ * Save preferred language to user preferences
+ */
+export async function savePreferredLanguage(
+  userId: string,
+  language: 'he' | 'en'
+): Promise<void> {
+  const now = new Date().toISOString();
+  
+  const { error } = await supabase
+    .from('user_preferences')
+    .upsert(
+      {
+        user_id: userId,
+        preferred_language: language,
+        updated_at: now,
+      },
+      {
+        onConflict: 'user_id',
+      }
+    );
+
+  if (error) {
+    console.error('[UserPreferences] Error saving preferred language:', {
+      user_id: userId,
+      error: error.message,
+    });
+    // Don't throw - this is not critical
+  }
 }
 

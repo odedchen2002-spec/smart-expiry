@@ -29,7 +29,7 @@ import {
 
 export default function ExportScreen() {
   const router = useRouter();
-  const { t, isRTL } = useLanguage();
+  const { t, isRTL, locale } = useLanguage();
   const rtlText = getRtlTextStyles(isRTL);
   const styles = createStyles(isRTL);
   const { activeOwnerId, ownerProfile } = useActiveOwner();
@@ -57,10 +57,10 @@ export default function ExportScreen() {
 
       // Export as PDF - use owner profile username if available
       const ownerName = ownerProfile?.username || (ownerProfile as any)?.profile_name || profile?.username || profile?.profile_name || 'Owner';
-      const fileUri = await exportAsPDF(items, dateRange, ownerName);
+      const fileUri = await exportAsPDF(items, dateRange, ownerName, locale);
 
       // Share the file
-      await shareFile(fileUri);
+      await shareFile(fileUri, locale);
 
       // Show success message
       setSnack(t('settings.export.fileCreatedSuccess'));
@@ -76,7 +76,7 @@ export default function ExportScreen() {
 
   return (
     <View style={styles.container}>
-      <Appbar.Header elevated>
+      <Appbar.Header style={{ backgroundColor: '#F5F5F5' }}>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title={t('settings.exportTitle') || 'ייצוא'} />
       </Appbar.Header>
@@ -146,7 +146,7 @@ export default function ExportScreen() {
           <Card.Content style={styles.cardContent}>
             <Text variant="bodySmall" style={[styles.infoText, rtlText]}>
               {t('settings.export.fieldsInfo') ||
-                'הקובץ יכלול: שם מוצר, ברקוד, תאריך תפוגה, קטגוריה'}
+                'הקובץ יכלול: שם מוצר, ברקוד, תאריך תפוגה'}
             </Text>
           </Card.Content>
         </Card>

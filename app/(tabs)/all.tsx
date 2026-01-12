@@ -1,48 +1,116 @@
 import { CategoryCardList } from '@/components/items/CategoryCardList';
+import { SkeletonItemList } from '@/components/items/SkeletonItemCard';
 import { SearchBar } from '@/components/search/SearchBar';
+import { Trial5DayReminderDialog } from '@/components/subscription/Trial5DayReminderDialog';
 import { TrialEndedDialog } from '@/components/subscription/TrialEndedDialog';
 import { TrialReminderDialog } from '@/components/subscription/TrialReminderDialog';
-import { Trial5DayReminderDialog } from '@/components/subscription/Trial5DayReminderDialog';
 import { UpgradeBanner } from '@/components/subscription/UpgradeBanner';
 import { useLanguage } from '@/context/LanguageContext';
 import { THEME_COLORS } from '@/lib/constants/colors';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
-import { useItems } from '@/lib/hooks/useItems';
 import { useNotificationBadge } from '@/lib/hooks/useNotificationBadge';
+import { useItemsQuery } from '@/hooks/queries/useItemsQuery';
+import { useDeleteItem } from '@/hooks/writes/useDeleteItem';
+import { useUpdateItem } from '@/hooks/writes/useUpdateItem';
+import { resolveItem } from '@/lib/supabase/mutations/items';
+import { logSoldFinished } from '@/lib/supabase/services/expiryEventsService';
 import { getRtlContainerStyles } from '@/lib/utils/rtlStyles';
 import { filterItems } from '@/lib/utils/search';
+import type { Database } from '@/types/database';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { differenceInDays, parseISO } from 'date-fns';
+import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Dimensions, Modal, Platform, ScrollView, StyleSheet, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
-import { Button, Chip, IconButton, Surface, Text } from 'react-native-paper';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Button, Chip, IconButton, Surface, Text, Snackbar } from 'react-native-paper';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+
+type Item = Database['public']['Views']['items_with_details']['Row'];
+
+// Store the last action for undo
+type LastAction = {
+  itemId: string;
+  itemName: string;
+  previousStatus: 'ok' | 'soon' | 'expired';
+};
 
 
 export default function AllScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ daysAhead?: string }>();
   const { t, isRTL } = useLanguage();
   const insets = useSafeAreaInsets();
   const screenHeight = Dimensions.get('window').height;
   const { activeOwnerId, loading: ownerLoading } = useActiveOwner();
   const { hasNew, markSeen } = useNotificationBadge();
-  const { items, loading, error, refetch } = useItems({
-    scope: 'all',
+  
+  // TanStack Query for reading items
+  const { data: items = [], isFetching, error, refetch } = useItemsQuery({
     ownerId: activeOwnerId || undefined,
-    autoFetch: !!activeOwnerId, // Only auto-fetch when owner is loaded
+    scope: 'all',
+    enabled: !!activeOwnerId,
   });
+  
+  // Debug log for items changes
+  useEffect(() => {
+    console.log('[All Screen] Items updated:', {
+      count: items.length,
+      hasOptimistic: items.some((i: any) => i._optimistic),
+      isFetching,
+      activeOwnerId
+    });
+  }, [items.length, isFetching, activeOwnerId]);
+  
+  // Determine if we have cached data
+  const hasCachedData = items.length > 0;
+  
+  // Show skeleton only if fetching AND no cached data (first load)
+  const showSkeleton = isFetching && !hasCachedData;
+  
+  // Write hooks (Outbox-based)
+  const { deleteItem, undoDelete, canUndo: canUndoDelete } = useDeleteItem(activeOwnerId || '', 'all');
+  const { updateItem } = useUpdateItem(activeOwnerId || '', 'all');
+  
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [daysFilter, setDaysFilter] = useState<number | null>(null); // null = all, number = days before expiry
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [filterMenuVisible, setFilterMenuVisible] = useState(false);
-  
+  const [snackbarVisible, setSnackbarVisible] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [lastAction, setLastAction] = useState<LastAction | null>(null);
+  const undoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isNavigatingToProductRef = useRef(false); // Track internal navigation (to product details)
+
+  // Track if filter was set from navigation params (for display label)
+  const [filterFromNav, setFilterFromNav] = useState<'today' | 'week' | null>(null);
+
   // Temporary filter states (before applying)
   const [tempDaysFilter, setTempDaysFilter] = useState<number | null>(null);
   const [tempCategoryFilter, setTempCategoryFilter] = useState<string | null>(null);
-  
+
+  // Handle navigation params for daysAhead filter
+  useEffect(() => {
+    if (params.daysAhead) {
+      const days = parseInt(params.daysAhead, 10);
+      if (!isNaN(days)) {
+        setDaysFilter(days);
+        // Track the source for display label
+        if (days === 0) {
+          setFilterFromNav('today');
+        } else if (days === 7) {
+          setFilterFromNav('week');
+        } else {
+          setFilterFromNav(null);
+        }
+        // Clear URL params immediately after applying
+        router.setParams({ daysAhead: undefined } as any);
+      }
+    }
+  }, [params.daysAhead]);
+
   // Get unique categories from items
   const availableCategories = useMemo(() => {
     const categories = new Set<string>();
@@ -56,10 +124,36 @@ export default function AllScreen() {
 
   // Filter items based on search query, days, and category
   const filteredItems = useMemo(() => {
+    console.log('[AllScreen] filteredItems useMemo start, items.length:', items.length);
+    
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     let filtered = items.filter((item) => item.status !== 'resolved');
+    console.log('[AllScreen] After status filter:', filtered.length);
+
+    // CRITICAL: Filter out soft-deleted items (marked for deletion with undo window)
+    // This prevents duplicate key errors and ensures deleted items don't appear in UI
+    filtered = filtered.filter((item) => !(item as any)._deleted);
+    console.log('[AllScreen] After _deleted filter:', filtered.length);
+    
+    // SAFETY: Remove duplicate IDs (in case of optimistic + reconcile race)
+    const seenIds = new Set<string>();
+    const duplicates = new Set<string>();
+    filtered = filtered.filter((item) => {
+      if (seenIds.has(item.id)) {
+        duplicates.add(item.id);
+        return false;
+      }
+      seenIds.add(item.id);
+      return true;
+    });
+    
+    // Log duplicates only once (if any found)
+    if (duplicates.size > 0) {
+      console.warn('[AllScreen] Duplicate IDs filtered:', Array.from(duplicates));
+    }
+    console.log('[AllScreen] After dedup filter:', filtered.length);
 
     filtered = filterItems(filtered, searchQuery);
 
@@ -89,7 +183,7 @@ export default function AllScreen() {
 
     return filtered;
   }, [items, searchQuery, daysFilter, categoryFilter]);
-  
+
   // Initialize temp filters when dialog opens
   useEffect(() => {
     if (filterMenuVisible) {
@@ -97,49 +191,156 @@ export default function AllScreen() {
       setTempCategoryFilter(categoryFilter);
     }
   }, [filterMenuVisible, daysFilter, categoryFilter]);
-  
+
   // Apply filters
   const handleApplyFilters = () => {
     setDaysFilter(tempDaysFilter);
     setCategoryFilter(tempCategoryFilter);
     setFilterMenuVisible(false);
   };
-  
+
   // Clear all filters
   const handleClearFilters = () => {
     setTempDaysFilter(null);
     setTempCategoryFilter(null);
     setDaysFilter(null);
     setCategoryFilter(null);
+    setFilterFromNav(null);
     setFilterMenuVisible(false);
+    // Clear the route params by navigating to same screen without params
+    router.setParams({ daysAhead: undefined } as any);
   };
-  
+
   // Check if any filters are active
   const hasActiveFilters = daysFilter !== null || categoryFilter !== null;
 
-  // Only refetch on focus if data is stale (older than 30 seconds) or if explicitly needed
-  // This prevents unnecessary refetches on every tab switch
-  const lastFetchRef = useRef<number>(0);
-  const STALE_TIME = 30000; // 30 seconds
-
-  useFocusEffect(
-    useCallback(() => {
-      if (activeOwnerId) {
-        const now = Date.now();
-        // Only refetch if data is stale (older than 30 seconds) or never fetched
-        if (now - lastFetchRef.current > STALE_TIME || lastFetchRef.current === 0) {
-          refetch();
-          lastFetchRef.current = Date.now();
-        }
-      }
-    }, [activeOwnerId, refetch])
-  );
-
+  // Pull-to-refresh (ONLY manual refetch path)
   const handleRefresh = async () => {
     setRefreshing(true);
     await refetch();
     setRefreshing(false);
   };
+
+  // Clear undo timeout
+  const clearUndoTimeout = useCallback(() => {
+    if (undoTimeoutRef.current) {
+      clearTimeout(undoTimeoutRef.current);
+      undoTimeoutRef.current = null;
+    }
+  }, []);
+
+  // Handle undo action
+  const handleUndo = useCallback(async () => {
+    if (!lastAction) return;
+
+    try {
+      clearUndoTimeout();
+      setSnackbarVisible(false);
+
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+      // Restore item to previous status
+      await updateItem({
+        itemId: lastAction.itemId,
+        updates: {
+        status: lastAction.previousStatus,
+        resolved_reason: null,
+        },
+      });
+
+      // Success haptic
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      // Clear last action
+      setLastAction(null);
+
+      // Refetch to update list
+      refetch();
+    } catch (error) {
+      console.error('[AllScreen] Error undoing action:', error);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  }, [lastAction, clearUndoTimeout, refetch]);
+
+  // Handle sold/finished action
+  const handleSoldFinished = useCallback(async (item: Item) => {
+    if (!activeOwnerId) return;
+
+    clearUndoTimeout();
+
+    // Haptic feedback immediately
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    // Store previous status for potential manual undo
+    const previousStatus = (item.status as 'ok' | 'soon' | 'expired') || 'ok';
+
+    // Store last action
+    setLastAction({
+      itemId: item.id,
+      itemName: item.product_name || t('common.product'),
+      previousStatus,
+    });
+
+    // Show snackbar
+    setSnackbarMessage(t('expiryAlert.actionSuccess'));
+    setSnackbarVisible(true);
+
+    // Set timeout to clear snackbar
+    undoTimeoutRef.current = setTimeout(() => {
+      setLastAction(null);
+      setSnackbarVisible(false);
+    }, 5000);
+
+    // Background: Log event (fire-and-forget) and update item via Outbox
+    try {
+      // Log the event (fire-and-forget, no await)
+      void logSoldFinished(
+        activeOwnerId,
+        item.id,
+        item.barcode_snapshot || item.product_barcode || undefined,
+        item.product_name || undefined
+      );
+
+      // Update item to resolved via Outbox (local operation only)
+      await updateItem({
+        itemId: item.id,
+        updates: { status: 'resolved' as any, resolved_reason: 'sold' },
+      });
+
+      // Success haptic
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('[AllScreen] Error handling sold/finished:', error);
+      setSnackbarMessage(t('common.error') || 'שגיאה');
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  }, [activeOwnerId, t, updateItem, clearUndoTimeout]);
+
+  // Handle delete action with optimistic UI + Outbox + Undo
+  const handleDelete = useCallback(async (item: Item) => {
+    // Guard against missing owner
+    if (!activeOwnerId) return;
+
+    // Haptic feedback immediately
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    try {
+      // Delete via Outbox (soft-delete with undo)
+      const result = await deleteItem(item.id);
+
+      // Show snackbar with undo (no manual timeout - managed by hook)
+    setSnackbarMessage(t('item.deleted') || 'המוצר נמחק');
+    setSnackbarVisible(true);
+      // Note: canUndo state is managed by useDeleteItem hook automatically
+
+      // Success haptic
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('[AllScreen] Error deleting item:', error);
+      setSnackbarMessage(t('item.deleteError') || 'שגיאה במחיקה');
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  }, [activeOwnerId, deleteItem, t]);
 
   const styles = createStyles(isRTL);
   const rtlContainer = getRtlContainerStyles(isRTL);
@@ -183,13 +384,6 @@ export default function AllScreen() {
                 />
                 {hasNew && <View style={styles.badgeDot} />}
               </View>
-              <IconButton
-                icon="folder-cog-outline"
-                size={19}
-                onPress={() => router.push('/categories' as any)}
-                iconColor="rgba(255, 255, 255, 0.72)"
-                style={styles.headerIcon}
-              />
             </View>
           </View>
         </LinearGradient>
@@ -210,7 +404,7 @@ export default function AllScreen() {
                 const daysUntil = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
                 return daysUntil <= 7;
               }).length;
-              
+
               if (needsAttention === 0) {
                 return t('screens.all.statusAllGood');
               } else if (needsAttention === 1) {
@@ -233,7 +427,7 @@ export default function AllScreen() {
                 elevated
               />
             </View>
-            
+
             <TouchableOpacity
               style={[
                 styles.filterButton,
@@ -242,16 +436,47 @@ export default function AllScreen() {
               onPress={() => setFilterMenuVisible(true)}
               activeOpacity={0.7}
             >
-              <MaterialCommunityIcons 
-                name="filter-variant" 
-                size={20} 
-                color={hasActiveFilters ? '#FFFFFF' : '#6B7280'} 
+              <MaterialCommunityIcons
+                name="filter-variant"
+                size={20}
+                color={hasActiveFilters ? '#FFFFFF' : '#6B7280'}
               />
             </TouchableOpacity>
           </View>
-          
+
           {hasActiveFilters && (
             <View style={[styles.activeFilterRow, rtlContainer]}>
+              {/* Show descriptive filter label */}
+              {filterFromNav === 'today' && (
+                <Chip
+                  icon="calendar-today"
+                  style={styles.activeFilterChip}
+                  mode="flat"
+                  textStyle={styles.activeFilterChipText}
+                >
+                  {t('filters.filteredToday') || 'מסונן: היום'}
+                </Chip>
+              )}
+              {filterFromNav === 'week' && (
+                <Chip
+                  icon="calendar-week"
+                  style={styles.activeFilterChip}
+                  mode="flat"
+                  textStyle={styles.activeFilterChipText}
+                >
+                  {t('filters.filtered7Days') || 'מסונן: 7 ימים'}
+                </Chip>
+              )}
+              {daysFilter !== null && !filterFromNav && (
+                <Chip
+                  icon="calendar-range"
+                  style={styles.activeFilterChip}
+                  mode="flat"
+                  textStyle={styles.activeFilterChipText}
+                >
+                  {daysFilter === 0 ? t('all.today') : `${daysFilter} ${t('all.days')}`}
+                </Chip>
+              )}
               <Chip
                 icon="close-circle"
                 onPress={handleClearFilters}
@@ -259,7 +484,7 @@ export default function AllScreen() {
                 mode="outlined"
                 textStyle={{ fontSize: 12 }}
               >
-                {t('common.clear')}
+                {t('filters.clearFilter') || 'נקה סינון'}
               </Chip>
             </View>
           )}
@@ -444,9 +669,12 @@ export default function AllScreen() {
 
         <UpgradeBanner />
 
+        {showSkeleton ? (
+          <SkeletonItemList count={10} />
+        ) : (
         <CategoryCardList
           items={filteredItems}
-          loading={loading || ownerLoading}
+            loading={ownerLoading}
           error={error}
           onRefresh={handleRefresh}
           refreshing={refreshing}
@@ -454,11 +682,56 @@ export default function AllScreen() {
           emptyMessage={t('screens.all.empty')}
           sortDirection="asc"
           showDaysRemaining={true}
+          onSoldFinished={handleSoldFinished}
+          onDelete={handleDelete}
+          hasActiveFilters={hasActiveFilters}
+          onBeforeNavigate={() => { isNavigatingToProductRef.current = true; }}
         />
+        )}
       </View>
       <Trial5DayReminderDialog />
       <TrialReminderDialog />
       <TrialEndedDialog />
+
+      {/* Snackbar with Undo for Delete */}
+      {canUndoDelete && (
+        <Snackbar
+          visible={true}
+          onDismiss={() => {
+            setSnackbarVisible(false);
+            // Note: actual cleanup happens in hook timer
+          }}
+          duration={5000}
+          action={{
+            label: t('common.cancel'),
+            onPress: () => {
+              undoDelete();
+              setSnackbarVisible(false);
+            },
+          }}
+          style={{ marginBottom: insets.bottom + 70 }}
+        >
+          {snackbarMessage || t('item.deleted') || 'המוצר נמחק'}
+        </Snackbar>
+      )}
+
+      {/* Snackbar for Sold/Finished (with manual undo) */}
+      {snackbarVisible && lastAction && !canUndoDelete && (
+        <View style={styles.undoContainer}>
+          <View style={styles.undoCard}>
+            <Text style={styles.undoMessage}>{snackbarMessage}</Text>
+            <Button
+              mode="text"
+              onPress={handleUndo}
+              style={styles.undoButton}
+              labelStyle={styles.undoButtonLabel}
+              compact
+            >
+              {t('common.cancel')}
+            </Button>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -626,6 +899,15 @@ const createStyles = (isRTL: boolean) => StyleSheet.create({
   clearFilterChip: {
     marginStart: isRTL ? 0 : 'auto',
     marginEnd: isRTL ? 'auto' : 0,
+  },
+  activeFilterChip: {
+    backgroundColor: THEME_COLORS.primary + '15',
+    borderColor: THEME_COLORS.primary + '30',
+  },
+  activeFilterChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: THEME_COLORS.primary,
   },
   filterBackdrop: {
     flex: 1,
@@ -904,6 +1186,49 @@ const createStyles = (isRTL: boolean) => StyleSheet.create({
   },
   selectedFilterItem: {
     backgroundColor: '#E3F2FD',
+  },
+  snackbar: {
+    backgroundColor: '#22C55E',
+    marginBottom: 100,
+  },
+  undoContainer: {
+    position: 'absolute',
+    bottom: 100,
+    left: 16,
+    right: 16,
+    alignItems: 'center',
+  },
+  undoCard: {
+    backgroundColor: '#1F2937',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  undoButton: {
+    backgroundColor: 'transparent',
+    marginVertical: 0,
+    marginHorizontal: 0,
+    paddingHorizontal: 0,
+  },
+  undoButtonLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#60A5FA',
+    marginHorizontal: 0,
+  },
+  undoMessage: {
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontSize: 14,
+    fontWeight: '500',
+    flex: 1,
   },
 });
 

@@ -60,3 +60,68 @@ export async function clearItemsCache(ownerId: string): Promise<void> {
   }
 }
 
+/**
+ * Add a single item to the cache (for offline additions)
+ * Creates a temporary item that will be replaced when synced
+ */
+export async function addItemToCache(
+  ownerId: string, 
+  item: {
+    id: string;
+    name: string;
+    barcode?: string | null;
+    expiry_date: string;
+    category_name?: string | null;
+  }
+): Promise<void> {
+  try {
+    const cached = await loadItemsFromCache(ownerId);
+    const existingItems = cached?.items || [];
+    
+    // Create a temporary item matching ItemWithDetails structure
+    const tempItem: ItemWithDetails = {
+      id: item.id,
+      owner_id: ownerId,
+      product_id: null,
+      product_name: item.name,
+      product_barcode: item.barcode || null,
+      product_category: item.category_name || null,
+      expiry_date: item.expiry_date,
+      barcode_snapshot: item.barcode || null,
+      status: null, // Will be set by server
+      is_plan_locked: false,
+      location_id: null,
+      location_name: null,
+      note: null,
+      resolved_reason: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    
+    // Add to beginning of list (newest first)
+    const newItems = [tempItem, ...existingItems];
+    await saveItemsToCache(ownerId, newItems);
+    
+    console.log('[ItemsCache] Added temporary item to cache:', item.id);
+  } catch (error) {
+    console.warn('[ItemsCache] Failed to add item to cache', error);
+  }
+}
+
+/**
+ * Remove a temporary item from cache (after sync or cancellation)
+ */
+export async function removeItemFromCache(ownerId: string, itemId: string): Promise<void> {
+  try {
+    const cached = await loadItemsFromCache(ownerId);
+    if (!cached?.items) return;
+    
+    const filteredItems = cached.items.filter(item => item.id !== itemId);
+    await saveItemsToCache(ownerId, filteredItems);
+    
+    console.log('[ItemsCache] Removed item from cache:', itemId);
+  } catch (error) {
+    console.warn('[ItemsCache] Failed to remove item from cache', error);
+  }
+}
+

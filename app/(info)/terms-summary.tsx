@@ -17,7 +17,7 @@ export default function TermsSummaryScreen() {
 
   return (
     <View style={styles.container}>
-      <Appbar.Header>
+      <Appbar.Header style={{ backgroundColor: '#F5F5F5' }}>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title={t('info.termsSummary.title')} />
       </Appbar.Header>

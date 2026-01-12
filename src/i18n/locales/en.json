@@ -61,7 +61,7 @@
     "and": "and",
     "termsOfUse": "Terms of Use",
     "privacyPolicy": "Privacy Policy",
-    "termsError": "You must accept the Terms of Use and Privacy Policy before signing up.",
+    "termsError": "You must accept the Terms of Use and Privacy Policy before continuing.",
     "profile": {
       "completeTitle": "Complete Your Profile",
       "completeSubtitle": "Please provide the following information to continue",
@@ -83,7 +83,16 @@
     "all": "All",
     "expired": "Expired",
     "empty": "No items expiring today. Scan a new product",
-    "scan": "Scan"
+    "scan": "Scan",
+    "pendingDates": "Pending dates",
+    "statusHintAction": "Some items need attention",
+    "statusHintOk": "All under control 👍",
+    "savingsReport": "Savings Report",
+    "heroNeedsAttention": "There are",
+    "heroProducts": "items that need attention",
+    "heroAllGood": "All under control! 👍",
+    "notificationsDisabled": "Notifications Disabled",
+    "notificationsDisabledDescription": "You won't receive alerts about expiring products. Tap to enable in settings."
   },
   "expiryAlert": {
     "whatHappened": "What happened?",
@@ -107,7 +116,10 @@
     "category": "Category",
     "allStatuses": "All",
     "allCategories": "All",
-    "apply": "Apply"
+    "apply": "Apply",
+    "filteredToday": "Filtered: Today",
+    "filtered7Days": "Filtered: 7 Days",
+    "clearFilter": "Clear Filter"
   },
   "item": {
     "name": "Name",
@@ -184,6 +196,7 @@
     "error": "An error occurred",
     "retry": "Retry",
     "offline": "Working offline",
+    "networkError": "Network error - check your connection",
     "save": "Save",
     "cancel": "Cancel",
     "confirm": "Confirm",
@@ -193,12 +206,24 @@
     "days": "days",
     "close": "Close",
     "ok": "OK",
+    "later": "Maybe later",
+    "upgrade": "Upgrade",
     "upgradeRequired": "Upgrade Required",
     "upgradeRequiredMessage": "In the free plan, you can manage up to 150 unlocked products. You are currently managing the first 150 products you added. To unlock all products, upgrade to the Pro plan.",
+    "upgradeRequiredMessagePro": "You've reached the Pro plan limit of 2,000 products. To continue adding products, upgrade to Pro+ for higher volume capacity.",
+    "upgradeRequiredMessageProPlus": "You've reached the fair use limit. Please contact support.",
     "product": "product",
     "products": "products",
+    "items": "items",
     "noResults": "No results found",
     "noProductsToDisplay": "No products to display",
+    "noProductsYet": "No products yet",
+    "letsAddFirst": "Let's add your first product",
+    "addManually": "Add manually",
+    "noFilterResults": "No products found",
+    "item_resolved": "Item resolved",
+    "tryDifferentSearch": "Try a different search",
+    "tryDifferentFilter": "Try changing the filter",
     "languageChanged": {
       "title": "Language changed",
       "message": "You may need to restart the app for the layout direction to fully update on all screens."
@@ -265,8 +290,11 @@
     "logoutDesc": "Sign out from the current account",
     "collaboration": {
       "title": "Collaboration",
-      "currentOwner": "You are currently editing products for: {name}",
-      "leaveAccount": "Leave this account"
+      "currentOwner": "You are currently editing products for: %{name}",
+      "leaveAccount": "Leave this account",
+      "leave": "Leave collaboration",
+      "leftSuccess": "You have successfully left the collaboration",
+      "leftError": "Unable to leave collaboration. Please try again later."
     },
     "teamManagement": "Team Management",
     "teamManagementDesc": "Invite/remove employees",
@@ -317,7 +345,7 @@
     "notifications": {
       "dailyReminder": "Daily reminder",
       "reminderTime": "Reminder time",
-      "timeFormat": "Format: HH:mm (e.g., 09:00)",
+      "timeFormat": "Select time (quarter hours: 00, 15, 30, 45)",
       "timeInvalid": "Invalid time format (HH:mm)",
       "advanceWarning": "Advance warning",
       "history": "Notifications History",
@@ -355,6 +383,7 @@
       "notFound": "Notification not found",
       "items": "Items in Notification",
       "noItems": "No items found",
+      "noTargetDate": "No product data for this notification",
       "markAllRead": "Mark all as read",
       "testNotifications": "Test notifications",
       "testDescription": "Send a sample notification to see how notifications look on your device",
@@ -378,16 +407,18 @@
     "clearOldData": "Clear old data",
     "clearOldDataDesc": "With confirmation",
     "currentPlan": "Current plan",
-    "currentPlanDesc": "Basic / Pro / Unlimited",
+    "currentPlanDesc": "Free / Pro / Pro+",
     "account": "Account",
     "title": "Settings",
     "subscriptionDescription": {
       "trial": "Free trial - %{days} days remaining",
-      "pro": "Unlimited plan with all features",
+      "proPlus": "Premium plan for high-volume businesses",
+      "pro": "Pro plan for small businesses",
       "free": "Free plan with basic features"
     },
     "subscriptionLabel": {
       "trial": "Free Trial",
+      "proPlus": "Pro+",
       "pro": "Pro",
       "free": "Free"
     },
@@ -636,17 +667,17 @@
     "endsOn": "Ends on",
     "validUntil": "Subscription Valid Until",
     "outOf": "out of",
-    "canAddUnlimited": "You can add unlimited products",
+    "canAddUnlimited": "You can add products with no limits",
     "nearLimit": "You are close to the limit",
     "productsRemaining": "products remaining",
     "whatsIncluded": "What's Included in the Plan",
-    "unlimitedProducts": "Unlimited products",
+    "unlimitedProducts": "High-volume products",
     "upTo": "Up to",
     "allBasicFeatures": "All basic features",
     "noLockingPro": "No product locking – you can edit all products and receive notifications for all",
     "lockingFree": "In the free plan, products beyond 150 will be locked for editing and will not receive expiry notifications",
     "fullSupport": "Full support",
-    "aiUnlimited": "AI table analyses unlimited",
+    "aiUnlimited": "High-volume shipment intake",
     "aiLoading": "AI table analyses: ...",
     "aiFree": "AI table analyses: %{remaining} / %{total} free analyses",
     "upgradeToPro": "Upgrade to Pro Plan",
@@ -654,15 +685,29 @@
     "expiredDescription": "Your subscription has expired. Subscribe to the basic plan to continue using the app without limits.",
     "subscribe": "Subscribe Now",
     "upgrade": "Upgrade Now",
-    "upgradeNote": "Upgrade to the basic plan to add unlimited products",
+    "upgradeNote": "Upgrade to Pro to add more products",
     "subscribeNote": "Price: %{price} ₪ per month",
     "subscribed": "Subscription activated successfully!",
     "subscribeError": "Unable to process subscription",
     "loadError": "Unable to load subscription information",
+    "upgradeSuccessTitle": "Upgrade Complete!",
+    "upgradeSuccessMessage": "Your plan has been upgraded successfully. The app will reload.",
+    "planChangedTitle": "Plan Changed",
+    "planChangedMessage": "Your plan has been changed. The app will reload.",
     "limitReached": {
       "title": "Plan Limit Reached",
-      "message": "You have %{count} products. The free plan allows %{maxItems}. Upgrade to continue using all your data.",
+      "message": "You have %{count} products. Your plan allows %{maxItems}. Upgrade to continue using all your data.",
       "upgrade": "Upgrade Now"
+    },
+    "proLimitReached": {
+      "title": "Pro Plan Limit Reached",
+      "message": "You have %{count} products. Pro plan allows up to 2,000 products. Upgrade to Pro+ for higher volume.",
+      "upgrade": "Upgrade to Pro+"
+    },
+    "proIntakeLimitReached": {
+      "title": "Shipment Intake Limit Reached",
+      "message": "Pro plan allows up to 20 shipment intake pages per month. Upgrade to Pro+ for higher volume.",
+      "upgrade": "Upgrade to Pro+"
     },
     "trial5DayReminder": {
       "title": "5 days left of full access",
@@ -684,8 +729,8 @@
       "manageTitle": "Manage Subscription",
       "headerTitle": "Choose the plan that's right for you",
       "headerSubtitle": "All plans include all basic features",
-      "marketingSubtitle": "⭐ Upgrade now – Cancel anytime",
-      "cancelAnytime": "⏳ Cancel anytime",
+      "marketingSubtitle": "Choose a plan based on your business size",
+      "cancelAnytime": "Cancel anytime through device settings",
       "priceComparison": "≈ Less than 1 ₪ per day",
       "upgradeButtonText": "Upgrade now and unlock everything",
       "freePlanLimitations": "Free plan limitations",
@@ -694,16 +739,33 @@
       "freePlanNoSupport": "No priority support",
       "freePlanNoAdvanced": "No advanced features",
       "recommended": "Recommended",
+      "mostPopular": "Most Popular",
       "currentPlan": "Current Plan",
       "pricePerMonth": "/ month",
       "loadingPrice": "Loading price...",
+      "loadingPriceFriendly": "Loading price...",
       "priceLoadError": "Unable to load price",
+      "priceWillShowInStore": "Price will show when app is available in store",
       "retryLoadPrice": "Try again",
-      "featureUnlimited": "Unlimited products",
+      "proDescription": "For small businesses",
+      "proPlusDescription": "For high-volume businesses",
+      "proFeature1": "Up to 20 shipment intake pages/month",
+      "proFeature2": "Up to 2,000 products",
+      "proFeature3": "All features",
+      "proFeature4": "Automatic backups",
+      "proPlusFeature1": "High-volume shipment intake",
+      "proPlusFeature2": "High-volume products",
+      "proPlusFeature3": "Perfect for minimarkets & supermarkets",
+      "proPlusFeature4": "All features",
+      "upgradeToPro": "Upgrade to Pro",
+      "upgradeToProPlus": "Upgrade to Pro+",
+      "switchToPro": "Switch to Pro",
+      "fairUseNote": "Usage is adapted to business size and workload. Exceptionally high usage may require a more suitable plan.",
+      "featureUnlimited": "High-volume products",
       "featureAll": "All features",
       "featureSupport": "Priority support",
       "featureBackup": "Automatic backups",
-      "featureAITables": "Unlimited AI table additions",
+      "featureAITables": "High-volume shipment intake",
       "selectPro": "Choose Pro Plan",
       "active": "Subscription Active",
       "cancellationNote": "To cancel your subscription, go to the %{store} and cancel the renewal on the subscriptions page.",
@@ -717,7 +779,17 @@
       "restoreSuccess": "Purchase restored successfully!",
       "noPurchasesToRestore": "No purchases found to restore.",
       "restoreUnsupported": "Purchases are not supported on this platform.",
-      "restoreLoginRequired": "Please log in to restore purchases"
+      "restoreLoginRequired": "Please log in to restore purchases",
+      "downgradeDialog": {
+        "title": "Switch to Pro Plan",
+        "message": "You are about to switch from Pro+ to Pro plan.\n\nPro plan limitations:",
+        "limit1": "• Up to 2,000 products (instead of high-volume)",
+        "limit2": "• Up to 20 shipment intake pages per month (instead of high-volume)",
+        "whenChange": "\nThe change will take effect on your next renewal date.",
+        "untilThen": "Until then, you'll continue to enjoy all Pro+ benefits.",
+        "continue": "Continue",
+        "cancel": "Cancel"
+      }
     },
     "manage": {
       "title": "Manage Subscription",
@@ -736,6 +808,13 @@
       "restoreError": "No purchases found to restore.",
       "restoreSuccess": "Purchase restored successfully!"
     }
+  },
+  "proLimit": {
+    "title": "Pro Plan Limit Reached",
+    "description": "Congratulations! You've reached 2,000 products on your Pro plan.",
+    "currentPlan": "Pro Plan: 2,000 products",
+    "upgradeTo": "Upgrade to Pro Plus: Unlimited products",
+    "note": "New products above 2,000 will be locked until you upgrade or delete existing products."
   },
   "info": {
     "termsSummary": {
@@ -993,7 +1072,11 @@
     "inviteTitle": "Add a new employee",
     "emailLabel": "Email",
     "roleLabel": "Permissions",
-    "sendInvite": "Send invite"
+    "sendInvite": "Send invite",
+    "changeRoleTitle": "Change permissions",
+    "changeRoleMessage": "Change {{name}}'s permissions to {{role}}?",
+    "changeRoleError": "Couldn't change permissions",
+    "roleChanged": "Permissions updated successfully"
   },
   "screens": {
     "all": {
@@ -1049,7 +1132,9 @@
       "limitReached": {
         "title": "Free Plan Limit Reached",
         "message": "The free plan allows up to 150 products only. To continue adding products, upgrade to Pro plan.",
-        "upgrade": "Upgrade to Pro Plan"
+        "upgrade": "Upgrade to Pro Plan",
+        "collaboratorMessage": "The owner has reached the free plan limit of 150 products. The owner needs to upgrade to Pro plan to add more items.",
+        "collaboratorMessagePro": "The owner has reached the Pro plan limit of 2,000 products. The owner needs to upgrade to Pro+ to add more items."
       },
       "subscriptionExpired": {
         "title": "Your Subscription Has Expired",
@@ -1061,7 +1146,8 @@
     "aiImport": {
       "title": "Import Table with AI",
       "subtitle": "Take or upload an image of a table with products and expiry dates, and AI will automatically fill the list for you",
-      "usagePro": "AI table analyses: Unlimited on Pro plan",
+      "imageQualityHint": "Clear text is preferred for accurate recognition",
+      "usagePro": "High-volume shipment intake on Pro plan",
       "usageFree": "Free table analyses remaining: %{remaining} out of %{total}",
       "selectImage": "Select Image",
       "analyzing": "Analyzing table...",
@@ -1083,6 +1169,7 @@
         "tryAnyway": "Try Anyway",
         "errorPickingImage": "Error selecting image",
         "noOwner": "No active owner found",
+        "loadingOwner": "Loading data, please wait...",
         "unknownError": "Unknown error",
         "aiNotConfigured": "AI service not configured. Please set OPENAI_API_KEY in Supabase Dashboard → Project Settings → Edge Functions → Secrets",
         "imageTooLargeError": "Image is too large. Try a smaller image or crop it.",
@@ -1093,13 +1180,22 @@
         "internalError": "Internal server error. Check function logs.",
         "analysisError": "Error analyzing image: {error}",
         "noProductsFound": "No products found in image",
+        "noDateFound": "No expiry dates found - please enter manually",
+        "someDatesNotFound": "{count} products missing expiry date",
         "viewerCannotSave": "Viewers cannot save products",
         "noItemsToSave": "No items to save",
         "validationError": "Please fill in name and expiry date for all products",
         "limitReached": "Free Plan Limit Reached",
         "limitReachedMessage": "In the free plan, you can manage up to 150 unlocked products. You are currently managing the first 150 products you added. To unlock all products, upgrade to the Pro plan.",
         "saveError": "Error saving products: {error}",
-        "saveSuccess": "Products added successfully"
+        "saveSuccess": "Products added successfully",
+        "savingInProgress": "Items will be added in a few moments...",
+        "partialSuccess": "Saved {{saved}} of {{total}} products",
+        "savedOffline": "{{count}} products saved locally - will sync when online",
+        "mixedSuccess": "{{online}} saved, {{offline}} pending sync",
+        "allFailed": "Could not save products - please retry",
+        "retryFailed": "Retry ({count})",
+        "networkError": "Network error - check your connection and retry"
       },
       "limitDialog": {
         "title": "Cannot Perform Another Analysis",
@@ -1115,7 +1211,7 @@
   "buttons": {
     "scanProduct": "Scan Product",
     "addWithoutBarcode": "Add without barcode",
-    "importTableAI": "Import Table with AI",
+    "importTableAI": "Add Products from Table",
     "supplierIntake": "Receive Shipment",
     "pendingFromSupplier": "Items from Supplier"
   },
@@ -1139,7 +1235,8 @@
     "saved": "Saved!",
     "matchedSupplierItem": "Matched supplier item",
     "nameSaved": "Name saved",
-    "dateUpdated": "Date updated"
+    "dateUpdated": "Date updated",
+    "distanceHint": "15-25 cm from barcode"
   },
   "sharedWithMe": {
     "title": "Shares sent to me",
@@ -1160,17 +1257,33 @@
     "active": "Active",
     "pending": "Pending",
     "ownerSwitched": "Switched to working on this owner's data.",
+    "needsRefresh": "You switched to another account. The app will refresh to load the new data.",
     "switchError": "Couldn't switch to this owner.",
     "myAccount": "My account"
   },
   "onboarding": {
     "welcome": {
       "title": "Welcome",
-      "body1": "We're excited to have you on board! During your free trial period (30 days), you can add and manage an unlimited number of products with full access to all features.",
+      "body1": "We're excited to have you on board! During your free trial period (30 days), you can add and manage products with full access to all features.",
       "body2": "After your trial ends, you can continue using the free plan to manage up to 150 active products. The first products you add will remain unlocked for editing.",
       "body3": "To unlock all products and enjoy full access to all features, you can upgrade to the Pro plan at any time.",
       "button": "Got it, let's get started"
-    }
+    },
+    "slide1": {
+      "title": "Expiry Management Without the Hassle",
+      "subtitle": "The app reminds you before products go to waste"
+    },
+    "slide2": {
+      "title": "It Takes Seconds",
+      "bullet1": "Scan or manual entry",
+      "bullet2": "Expiry date",
+      "bullet3": "Timely notification"
+    },
+    "slide3": {
+      "title": "Let's Get Started"
+    },
+    "addFirstProduct": "Add First Product",
+    "skip": "Skip"
   },
   "quickDelete": {
     "title": "Quick Delete Products",
@@ -1186,7 +1299,9 @@
     "confirmDeleteAllMessage": "Are you sure you want to delete all your products?\n\nThis action is irreversible and cannot be undone.",
     "confirmDeleteAll": "Delete All",
     "confirmDeleteSelectedMessage": "Are you sure you want to delete %{count} selected products?\n\nThis action is irreversible and cannot be undone.",
-    "confirmDelete": "Delete"
+    "confirmDelete": "Delete",
+    "searchPlaceholder": "Search product...",
+    "noSearchResults": "No results found"
   },
   "supplierIntake": {
     "title": "Receive Shipment",
@@ -1200,6 +1315,9 @@
     "foundItems": "Found {count} items",
     "itemsAdded": "{count} items added",
     "remainingAnalyses": "{count} analyses remaining",
+    "remainingPages": "{count} intake pages remaining",
+    "proRemainingPages": "{count} intake pages remaining this month",
+    "resetDate": "Resets on {date}",
     "loading": "Loading...",
     "viewerCannotImport": "Viewers cannot import",
     "permissionRequired": "Permission Required",
@@ -1208,15 +1326,33 @@
     "errorCapturing": "Error capturing photo",
     "errorPicking": "Error picking image",
     "aiError": "Error analyzing image",
+    "quotaExceeded": "You've used all your monthly intake pages",
+    "noRemainingPages": "No intake pages remaining this month",
+    "noMoreFreePages": "No free intake pages remaining. Upgrade to Pro",
+    "keepAppOpen": "Please keep the app open during processing. Try again.",
     "noItemsFound": "No items found in image",
     "saveError": "Error saving items",
     "limitReached": "Limit Reached",
-    "limitMessage": "AI analyses are limited on free accounts. Upgrade to Pro for unlimited analyses."
+    "limitMessage": "AI analyses are limited on free accounts. Upgrade to Pro for higher volume.",
+    "freeLimitMessage": "Intake is limited to 10 pages on free accounts. Upgrade to Pro for higher volume.",
+    "proLimitMessage": "You've reached the 20 pages/month limit. Upgrade to Pro+ for higher volume.",
+    "limitResetInfo": "Quota resets on {date}",
+    "dateChoiceTitle": "What's next?",
+    "dateChoiceMessage": "{count} items added. Enter expiry dates now?",
+    "dateChoiceQuestion": "Enter expiry dates now?",
+    "enterNow": "Enter Now",
+    "enterLater": "Later",
+    "itemsNeedNames": "{{count}} items need names",
+    "foundFromHistory": "{{count}} products identified from history",
+    "needsManualName": "Name required",
+    "enterProductName": "Enter product name",
+    "aiRefusedError": "AI refused to process the image. Try a different image."
   },
   "pendingExpiry": {
     "title": "Complete Dates",
     "remaining": "{count} remaining",
     "enterDate": "Enter Date",
+    "enterName": "Please enter product name",
     "unknownProduct": "Unknown product",
     "saved": "Saved!",
     "deleted": "Deleted",
@@ -1224,7 +1360,54 @@
     "saveError": "Error saving",
     "deleteError": "Error deleting",
     "allDone": "All done!",
-    "noItems": "No items pending expiry dates"
+    "noItems": "No items pending expiry dates",
+    "limitReached": "You've reached the 150 items limit on the free plan. Upgrade to Pro to add more items.",
+    "deleteAll": "Delete All",
+    "deleteAllTitle": "Delete All Items",
+    "deleteAllMessage": "Are you sure you want to delete all {count} items?",
+    "allDeleted": "All items deleted",
+    "tapToEnterName": "Tap to enter name",
+    "autoDetectedTitle": "Auto-detected from delivery note",
+    "autoDetectedMessage": "Some details were auto-detected and may need verification. You can complete or scan barcodes if needed."
+  },
+  "statistics": {
+    "title": "Overview",
+    "thisMonth": "This Month",
+    "year": "This Year",
+    "handled": "Handled",
+    "thrown": "Thrown",
+    "handledVsThrown": "Handled vs Thrown",
+    "topThrownProducts": "Top 3 Thrown Products",
+    "showMore": "See other places",
+    "showLess": "Show less",
+    "noData": "No data to display",
+    "noThrownProducts": "No thrown products",
+    "rank": "Rank",
+    "resetStatistics": "Reset Statistics",
+    "resetConfirmTitle": "Reset Statistics",
+    "resetConfirmMessage": "This will reset all statistics data shown on this screen (This Month and All Time).\n\nThis action cannot be undone.",
+    "resetMonthConfirmTitle": "Reset Monthly Statistics",
+    "resetMonthConfirmMessage": "Reset this month's statistics only?\n\nThis action cannot be undone.",
+    "resetYearConfirmTitle": "Reset Year Statistics",
+    "resetYearConfirmMessage": "Reset this year's statistics?\n\nThis action cannot be undone.",
+    "resetConfirmButton": "Reset Statistics",
+    "resetSuccess": "Statistics reset successfully",
+    "resetMonthSuccess": "Monthly statistics reset successfully",
+    "resetYearSuccess": "Year statistics reset successfully",
+    "resetError": "Could not reset statistics",
+    "handledPercent": "Handled",
+    "thrownPercent": "Thrown",
+    "ofTotal": "of total",
+    "thrownProductsList": "Thrown Products",
+    "close": "Close"
+  },
+  "offline": {
+    "youAreOffline": "You are offline",
+    "syncing": "Syncing data...",
+    "pendingItems": "{{count}} items pending sync",
+    "savedLocally": "Saved locally - will sync when online",
+    "syncComplete": "Sync completed successfully",
+    "syncFailed": "Sync failed - will retry soon",
+    "itemsSynced": "{{count}} items synced successfully"
   }
 }
-

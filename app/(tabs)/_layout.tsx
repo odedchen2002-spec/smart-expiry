@@ -2,15 +2,113 @@ import { useLanguage } from '@/context/LanguageContext';
 import { TimeProvider } from '@/context/TimeContext';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
 import { useItems } from '@/lib/hooks/useItems';
+import { useProLimitDialog } from '@/lib/hooks/useProLimitDialog';
+import { ProLimitReachedDialog } from '@/components/subscription/ProLimitReachedDialog';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Tabs, useFocusEffect } from 'expo-router';
-import { useCallback, useRef } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useCallback, useRef, useState } from 'react';
+import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+// Animation constants
+const TAB_ANIMATION = {
+  PRESS_DURATION: 80,
+  SCALE_PRESSED: 0.95,
+};
 
 interface FloatingTabBarProps extends BottomTabBarProps {
   expiringCount?: number;
+}
+
+// Animated tab button component
+interface AnimatedTabButtonProps {
+  route: any;
+  index: number;
+  isFocused: boolean;
+  options: any;
+  onPress: () => void;
+  onLongPress: () => void;
+  expiringCount: number;
+}
+
+function AnimatedTabButton({
+  route,
+  isFocused,
+  options,
+  onPress,
+  onLongPress,
+  expiringCount,
+}: AnimatedTabButtonProps) {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const label =
+    options.tabBarLabel !== undefined
+      ? (options.tabBarLabel as string)
+      : options.title !== undefined
+      ? options.title
+      : route.name;
+  const color = isFocused ? '#007AFF' : '#1C1C1E';
+
+  const handlePressIn = () => {
+    Animated.timing(scaleAnim, {
+      toValue: TAB_ANIMATION.SCALE_PRESSED,
+      duration: TAB_ANIMATION.PRESS_DURATION,
+      easing: Easing.out(Easing.ease),
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.timing(scaleAnim, {
+      toValue: 1,
+      duration: TAB_ANIMATION.PRESS_DURATION * 1.5,
+      easing: Easing.out(Easing.ease),
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePress = async () => {
+    await Haptics.selectionAsync();
+    onPress();
+  };
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={isFocused ? { selected: true } : {}}
+      accessibilityLabel={options.tabBarAccessibilityLabel}
+      onPress={handlePress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      onLongPress={onLongPress}
+      style={styles.tabButton}
+    >
+      <Animated.View
+        style={[
+          styles.tabPill,
+          isFocused && styles.tabPillActive,
+          { transform: [{ scale: scaleAnim }] },
+        ]}
+      >
+        <View style={styles.iconContainer}>
+          {options.tabBarIcon
+            ? options.tabBarIcon({ focused: isFocused, color, size: 22 })
+            : null}
+          {route.name === 'expired' && expiringCount > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>
+                {expiringCount > 99 ? '99+' : expiringCount}
+              </Text>
+            </View>
+          )}
+        </View>
+        <Text style={[styles.tabLabel, isFocused && styles.tabLabelActive]} numberOfLines={1}>
+          {label}
+        </Text>
+      </Animated.View>
+    </Pressable>
+  );
 }
 
 function FloatingTabBar({ state, descriptors, navigation, expiringCount = 0 }: FloatingTabBarProps) {
@@ -21,16 +119,7 @@ function FloatingTabBar({ state, descriptors, navigation, expiringCount = 0 }: F
       <View style={styles.tabBar}>
         {state.routes.map((route, index) => {
           const { options } = descriptors[route.key];
-          const label =
-            options.tabBarLabel !== undefined
-              ? (options.tabBarLabel as string)
-              : options.title !== undefined
-              ? options.title
-              : route.name;
-
           const isFocused = state.index === index;
-          // Blue for active, black for inactive (inspired by the design)
-          const color = isFocused ? '#007AFF' : '#1C1C1E';
 
           const onPress = () => {
             const event = navigation.emit({
@@ -52,35 +141,16 @@ function FloatingTabBar({ state, descriptors, navigation, expiringCount = 0 }: F
           };
 
           return (
-            <TouchableOpacity
+            <AnimatedTabButton
               key={route.key}
-              accessibilityRole="button"
-              accessibilityState={isFocused ? { selected: true } : {}}
-              accessibilityLabel={options.tabBarAccessibilityLabel}
+              route={route}
+              index={index}
+              isFocused={isFocused}
+              options={options}
               onPress={onPress}
               onLongPress={onLongPress}
-              style={styles.tabButton}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.tabPill, isFocused && styles.tabPillActive]}>
-                <View style={styles.iconContainer}>
-                  {options.tabBarIcon
-                    ? options.tabBarIcon({ focused: isFocused, color, size: 22 })
-                    : null}
-                  {/* Show expiring count badge on expired tab */}
-                  {route.name === 'expired' && expiringCount > 0 && (
-                    <View style={styles.badge}>
-                      <Text style={styles.badgeText}>
-                        {expiringCount > 99 ? '99+' : expiringCount}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-                <Text style={[styles.tabLabel, isFocused && styles.tabLabelActive]} numberOfLines={1}>
-                  {label}
-                </Text>
-              </View>
-            </TouchableOpacity>
+              expiringCount={expiringCount}
+            />
           );
         })}
       </View>
@@ -91,6 +161,9 @@ function FloatingTabBar({ state, descriptors, navigation, expiringCount = 0 }: F
 export default function TabsLayout() {
   const { t } = useLanguage();
   const { activeOwnerId } = useActiveOwner();
+  
+  // Pro limit dialog - shows once when reaching 2000 items
+  const { showDialog: showProLimitDialog, dismissDialog: dismissProLimitDialog } = useProLimitDialog();
   
   // Get expired items count for badge (items that have already expired)
   const { items: expiredItems, totalItemsCount, refetch: refetchExpired } = useItems({
@@ -175,7 +248,14 @@ export default function TabsLayout() {
           ),
         }}
       />
-    </Tabs>
+      </Tabs>
+      
+      {/* Pro Limit Dialog - shown once when reaching 2000 items */}
+      <ProLimitReachedDialog
+        visible={showProLimitDialog}
+        onDismiss={dismissProLimitDialog}
+        ownerId={activeOwnerId || ''}
+      />
     </TimeProvider>
   );
 }
@@ -198,14 +278,21 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 6,
     gap: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 24,
-    elevation: 12,
+    // Refined shadow for premium depth
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.06,
+        shadowRadius: 16,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
     // Subtle border for definition
     borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.04)',
+    borderColor: 'rgba(0, 0, 0, 0.03)',
   },
   tabButton: {
     flex: 1,

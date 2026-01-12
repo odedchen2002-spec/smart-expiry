@@ -120,3 +120,23 @@ export async function declineInvitation(ownerId: string, memberId: string): Prom
   }
 }
 
+/**
+ * Update collaborator role (owner only).
+ */
+export async function updateCollaboratorRole(
+  ownerId: string,
+  memberId: string,
+  newRole: 'editor' | 'viewer'
+): Promise<void> {
+  const { error } = await supabase
+    .from('collaborations')
+    .update({ role: newRole })
+    .eq('owner_id', ownerId)
+    .eq('member_id', memberId);
+
+  if (error) {
+    console.error('Error updating collaborator role:', error);
+    throw error;
+  }
+}
+

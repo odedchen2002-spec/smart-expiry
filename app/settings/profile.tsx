@@ -3,29 +3,29 @@
  * User profile information and settings
  */
 
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Alert, Platform } from 'react-native';
-import {
-  Appbar,
-  Card,
-  TextInput,
-  Button,
-  HelperText,
-  Text,
-  Avatar,
-  Dialog,
-  Portal,
-} from 'react-native-paper';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import { useLanguage } from '@/context/LanguageContext';
 import { useAuth } from '@/context/AuthContext';
+import { useLanguage } from '@/context/LanguageContext';
+import { THEME_COLORS } from '@/lib/constants/colors';
 import { useProfile } from '@/lib/hooks/useProfile';
 import { useSubscription } from '@/lib/hooks/useSubscription';
-import { updateProfile, isProfileNameUnique } from '@/lib/supabase/mutations/profiles';
 import { deleteUserAccount } from '@/lib/supabase/mutations/auth';
-import { getRtlTextStyles, getRtlContainerStyles } from '@/lib/utils/rtlStyles';
-import { THEME_COLORS } from '@/lib/constants/colors';
+import { isProfileNameUnique, updateProfile } from '@/lib/supabase/mutations/profiles';
+import { getRtlContainerStyles, getRtlTextStyles } from '@/lib/utils/rtlStyles';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { Alert, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  Appbar,
+  Avatar,
+  Button,
+  Card,
+  Dialog,
+  HelperText,
+  Portal,
+  Text,
+  TextInput,
+} from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function ProfileScreen() {
@@ -80,15 +80,15 @@ export default function ProfileScreen() {
 
     setSaving(true);
     setErrors({});
-    
+
     try {
       const trimmedProfileName = profileName.trim();
-      
+
       // Check if profile name changed and validate uniqueness
       if (trimmedProfileName !== profile?.profile_name) {
         setChecking(true);
         const isUnique = await isProfileNameUnique(trimmedProfileName, user.id);
-        
+
         if (!isUnique) {
           setErrors({
             profileName: 'שם משתמש/עסק כבר קיים. נא בחר שם אחר.',
@@ -101,12 +101,12 @@ export default function ProfileScreen() {
 
       // Prepare update object
       const updates: any = {};
-      
+
       // Update profile name if changed
       if (trimmedProfileName !== profile?.profile_name) {
         updates.profile_name = trimmedProfileName;
       }
-      
+
       // Update contact email (profiles.email) if changed
       const trimmedContactEmail = contactEmail.trim();
       if (trimmedContactEmail !== (profile?.email || '')) {
@@ -120,7 +120,7 @@ export default function ProfileScreen() {
           if (updates.profile_name && updates.profile_name !== profile?.profile_name) {
             setChecking(true);
             const isUnique = await isProfileNameUnique(updates.profile_name, user.id);
-            
+
             if (!isUnique) {
               setErrors({
                 profileName: 'שם משתמש/עסק כבר קיים. נא בחר שם אחר.',
@@ -136,10 +136,10 @@ export default function ProfileScreen() {
           await refetch();
         } catch (updateError: any) {
           // Handle unique constraint violation
-          if (updateError.code === '23505' || 
-              updateError.message?.includes('unique') || 
-              updateError.message?.includes('duplicate') ||
-              updateError.message?.includes('already exists')) {
+          if (updateError.code === '23505' ||
+            updateError.message?.includes('unique') ||
+            updateError.message?.includes('duplicate') ||
+            updateError.message?.includes('already exists')) {
             setErrors({
               profileName: 'שם משתמש/עסק כבר קיים. נא בחר שם אחר.',
             });
@@ -159,9 +159,9 @@ export default function ProfileScreen() {
     } catch (error: any) {
       console.error('Error updating profile:', error);
       const errorMessage = error.message || '';
-      if (errorMessage.includes('already exists') || 
-          errorMessage.includes('Profile name already exists') ||
-          error.code === '23505') {
+      if (errorMessage.includes('already exists') ||
+        errorMessage.includes('Profile name already exists') ||
+        error.code === '23505') {
         setErrors({
           profileName: 'שם משתמש/עסק כבר קיים. נא בחר שם אחר.',
         });
@@ -179,7 +179,7 @@ export default function ProfileScreen() {
 
   const handleDeleteAccount = async () => {
     console.log('handleDeleteAccount: Called');
-    
+
     if (!user?.id) {
       console.error('handleDeleteAccount: No user ID');
       Alert.alert(
@@ -191,16 +191,16 @@ export default function ProfileScreen() {
 
     console.log('handleDeleteAccount: Starting deletion for user:', user.id);
     setDeleting(true);
-    
+
     try {
       console.log('handleDeleteAccount: Calling deleteUserAccount...');
       await deleteUserAccount();
       console.log('handleDeleteAccount: Account deleted successfully, signing out...');
-      
+
       // Sign out the user after successful deletion
       await signOut();
       console.log('handleDeleteAccount: Signed out, navigating to login...');
-      
+
       // Show success message
       Alert.alert(
         t('common.success') || 'הצלחה',
@@ -228,18 +228,18 @@ export default function ProfileScreen() {
   };
 
   // Check if user can delete account (free plan or free trial, but not active paid subscription)
-  const canDeleteAccount = !subscriptionLoading && subscription && 
+  const canDeleteAccount = !subscriptionLoading && subscription &&
     !subscription.isPaidActive;
 
   return (
     <View style={styles.container}>
-      <Appbar.Header>
+      <Appbar.Header style={{ backgroundColor: '#F5F5F5' }}>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title={t('settings.myProfile') || 'הפרופיל שלי'} />
       </Appbar.Header>
 
-      <ScrollView 
-        style={styles.content} 
+      <ScrollView
+        style={styles.content}
         contentContainerStyle={[
           styles.scrollContent,
           canDeleteAccount && { paddingBottom: 100 }
@@ -254,24 +254,24 @@ export default function ProfileScreen() {
               style={styles.profileGradient}
             >
               <Card.Content style={styles.profileCardContent}>
-              <View style={styles.avatarContainer}>
-                <View style={styles.avatarWrapper}>
-                  <Avatar.Text
-                    size={96}
-                    label={user?.email?.charAt(0).toUpperCase() || 'U'}
-                    style={styles.avatar}
-                    labelStyle={styles.avatarLabel}
-                  />
-                </View>
-                <Text variant="titleLarge" style={[styles.emailText, getRtlTextStyles(isRTL, 'center')]}>
-                  {profile?.profile_name || profile?.username || user?.email || 'User'}
-                </Text>
-                {profile?.email && (
-                  <Text variant="bodySmall" style={[styles.contactEmailText, getRtlTextStyles(isRTL, 'center')]}>
-                    {profile.email}
+                <View style={styles.avatarContainer}>
+                  <View style={styles.avatarWrapper}>
+                    <Avatar.Text
+                      size={96}
+                      label={user?.email?.charAt(0).toUpperCase() || 'U'}
+                      style={styles.avatar}
+                      labelStyle={styles.avatarLabel}
+                    />
+                  </View>
+                  <Text variant="titleLarge" style={[styles.emailText, getRtlTextStyles(isRTL, 'center')]}>
+                    {profile?.profile_name || profile?.username || user?.email || 'User'}
                   </Text>
-                )}
-              </View>
+                  {profile?.email && (
+                    <Text variant="bodySmall" style={[styles.contactEmailText, getRtlTextStyles(isRTL, 'center')]}>
+                      {profile.email}
+                    </Text>
+                  )}
+                </View>
               </Card.Content>
             </LinearGradient>
           </View>
@@ -296,7 +296,7 @@ export default function ProfileScreen() {
               keyboardType="email-address"
               autoCapitalize="none"
               autoComplete="email"
-              editable={!profileLoading && !!user?.id}
+              editable={false}
               style={[styles.input, rtlText]}
               contentStyle={styles.inputContent}
               error={!!errors.contactEmail}
@@ -417,216 +417,216 @@ export default function ProfileScreen() {
 
 function createStyles(isRTL: boolean) {
   return StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
-  },
-  content: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 20,
-    paddingBottom: 32,
-  },
-  profileCard: {
-    marginBottom: 20,
-    borderRadius: 20,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-  },
-  profileCardWrapper: {
-    overflow: 'hidden',
-    borderRadius: 20,
-  },
-  profileGradient: {
-    borderRadius: 20,
-  },
-  profileCardContent: {
-    paddingVertical: 32,
-    paddingHorizontal: 24,
-  },
-  avatarContainer: {
-    alignItems: 'center',
-  },
-  avatarWrapper: {
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  avatar: {
-    backgroundColor: '#FFFFFF',
-  },
-  avatarLabel: {
-    fontSize: 36,
-    fontWeight: '700',
-    color: THEME_COLORS.primary,
-  },
-  contactEmailText: {
-    color: THEME_COLORS.textSecondary,
-    marginTop: 4,
-    fontSize: 14,
-  },
-  emailText: {
-    fontWeight: '600',
-    color: '#FFFFFF',
-    fontSize: 18,
-    textAlign: 'center',
-  },
-  card: {
-    marginBottom: 20,
-    borderRadius: 16,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    backgroundColor: '#FFFFFF',
-  },
-  cardContent: {
-    paddingVertical: 20,
-    paddingHorizontal: 20,
-  },
-  sectionTitle: {
-    marginBottom: 20,
-    fontWeight: '700',
-    fontSize: 17,
-    color: '#212121',
-    letterSpacing: 0.3,
-  },
-  input: {
-    marginBottom: 8,
-    backgroundColor: '#FFFFFF',
-  },
-  inputContent: {
-    fontSize: 15,
-  },
-  helperText: {
-    fontSize: 13,
-    marginTop: 4,
-  },
-  button: {
-    marginTop: 4,
-    borderRadius: 12,
-    borderColor: THEME_COLORS.primary,
-  },
-  buttonContent: {
-    paddingVertical: 8,
-  },
-  buttonLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: THEME_COLORS.primary,
-  },
-  actions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 8,
-    gap: 12,
-  },
-  actionButton: {
-    flex: 1,
-    borderRadius: 14,
-  },
-  actionButtonContent: {
-    paddingVertical: 10,
-  },
-  actionButtonLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  deleteAccountContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#F5F5F5',
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 8,
-      },
-    }),
-  },
-  deleteAccountButtonWrapper: {
-    alignItems: isRTL ? 'flex-start' : 'flex-end',
-  },
-  deleteAccountButton: {
-    borderRadius: 10,
-    borderColor: THEME_COLORS.error,
-  },
-  deleteAccountButtonContent: {
-    paddingVertical: 6,
-    paddingHorizontal: 16,
-  },
-  deleteAccountButtonLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  dialog: {
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 16,
-  },
-  dialogTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#212121',
-    marginBottom: 8,
-  },
-  dialogText: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: '#757575',
-    marginBottom: 8,
-  },
-  dialogActions: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    paddingTop: 8,
-    gap: 12,
-  },
-  dialogCancelButton: {
-    flex: 1,
-    borderRadius: 12,
-    borderColor: '#E0E0E0',
-  },
-  dialogDeleteButton: {
-    flex: 1,
-    borderRadius: 12,
-    elevation: 2,
-    shadowColor: THEME_COLORS.error,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-  },
-  dialogButtonContent: {
-    paddingVertical: 8,
-  },
-  dialogCancelLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#424242',
-  },
-  dialogDeleteLabel: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
+    container: {
+      flex: 1,
+      backgroundColor: '#F5F5F5',
+    },
+    content: {
+      flex: 1,
+    },
+    scrollContent: {
+      padding: 20,
+      paddingBottom: 32,
+    },
+    profileCard: {
+      marginBottom: 20,
+      borderRadius: 20,
+      elevation: 4,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.15,
+      shadowRadius: 12,
+    },
+    profileCardWrapper: {
+      overflow: 'hidden',
+      borderRadius: 20,
+    },
+    profileGradient: {
+      borderRadius: 20,
+    },
+    profileCardContent: {
+      paddingVertical: 32,
+      paddingHorizontal: 24,
+    },
+    avatarContainer: {
+      alignItems: 'center',
+    },
+    avatarWrapper: {
+      marginBottom: 16,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.2,
+      shadowRadius: 8,
+      elevation: 6,
+    },
+    avatar: {
+      backgroundColor: '#FFFFFF',
+    },
+    avatarLabel: {
+      fontSize: 36,
+      fontWeight: '700',
+      color: THEME_COLORS.primary,
+    },
+    contactEmailText: {
+      color: THEME_COLORS.textSecondary,
+      marginTop: 4,
+      fontSize: 14,
+    },
+    emailText: {
+      fontWeight: '600',
+      color: '#FFFFFF',
+      fontSize: 18,
+      textAlign: 'center',
+    },
+    card: {
+      marginBottom: 20,
+      borderRadius: 16,
+      elevation: 1,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.05,
+      shadowRadius: 6,
+      backgroundColor: '#FFFFFF',
+    },
+    cardContent: {
+      paddingVertical: 20,
+      paddingHorizontal: 20,
+    },
+    sectionTitle: {
+      marginBottom: 20,
+      fontWeight: '700',
+      fontSize: 17,
+      color: '#212121',
+      letterSpacing: 0.3,
+    },
+    input: {
+      marginBottom: 8,
+      backgroundColor: '#FFFFFF',
+    },
+    inputContent: {
+      fontSize: 15,
+    },
+    helperText: {
+      fontSize: 13,
+      marginTop: 4,
+    },
+    button: {
+      marginTop: 4,
+      borderRadius: 12,
+      borderColor: THEME_COLORS.primary,
+    },
+    buttonContent: {
+      paddingVertical: 8,
+    },
+    buttonLabel: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: THEME_COLORS.primary,
+    },
+    actions: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginTop: 8,
+      gap: 12,
+    },
+    actionButton: {
+      flex: 1,
+      borderRadius: 14,
+    },
+    actionButtonContent: {
+      paddingVertical: 10,
+    },
+    actionButtonLabel: {
+      fontSize: 15,
+      fontWeight: '600',
+    },
+    deleteAccountContainer: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      backgroundColor: '#F5F5F5',
+      paddingHorizontal: 20,
+      paddingTop: 12,
+      borderTopWidth: 1,
+      borderTopColor: '#E0E0E0',
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 4,
+        },
+        android: {
+          elevation: 8,
+        },
+      }),
+    },
+    deleteAccountButtonWrapper: {
+      alignItems: isRTL ? 'flex-start' : 'flex-end',
+    },
+    deleteAccountButton: {
+      borderRadius: 10,
+      borderColor: THEME_COLORS.error,
+    },
+    deleteAccountButtonContent: {
+      paddingVertical: 6,
+      paddingHorizontal: 16,
+    },
+    deleteAccountButtonLabel: {
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    dialog: {
+      borderRadius: 20,
+      backgroundColor: '#FFFFFF',
+      marginHorizontal: 16,
+    },
+    dialogTitle: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: '#212121',
+      marginBottom: 8,
+    },
+    dialogText: {
+      fontSize: 15,
+      lineHeight: 22,
+      color: '#757575',
+      marginBottom: 8,
+    },
+    dialogActions: {
+      paddingHorizontal: 16,
+      paddingBottom: 16,
+      paddingTop: 8,
+      gap: 12,
+    },
+    dialogCancelButton: {
+      flex: 1,
+      borderRadius: 12,
+      borderColor: '#E0E0E0',
+    },
+    dialogDeleteButton: {
+      flex: 1,
+      borderRadius: 12,
+      elevation: 2,
+      shadowColor: THEME_COLORS.error,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 4,
+    },
+    dialogButtonContent: {
+      paddingVertical: 8,
+    },
+    dialogCancelLabel: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: '#424242',
+    },
+    dialogDeleteLabel: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: '#FFFFFF',
+    },
   });
 }
 

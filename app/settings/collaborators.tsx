@@ -1,13 +1,13 @@
 import { useLanguage } from '@/context/LanguageContext';
 import { THEME_COLORS } from '@/lib/constants/colors';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
-import { inviteCollaborator, removeCollaborator } from '@/lib/supabase/mutations/collaborations';
+import { inviteCollaborator, removeCollaborator, updateCollaboratorRole } from '@/lib/supabase/mutations/collaborations';
 import { getCollaborationsByOwner, type CollaborationWithMember } from '@/lib/supabase/queries/collaborations';
 import { getRtlContainerStyles, getRtlTextStyles } from '@/lib/utils/rtlStyles';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Alert, Platform, RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ActivityIndicator, Appbar, Button, Card, Chip, IconButton, Text, TextInput } from 'react-native-paper';
 
 
@@ -20,20 +20,26 @@ export default function CollaboratorsScreen() {
   const { activeOwnerId, isOwner, ownerProfile, loading: ownerLoading } = useActiveOwner();
 
   const [collaborators, setCollaborators] = useState<CollaborationWithMember[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Show page immediately, load data in background
+  const [refreshing, setRefreshing] = useState(false); // For pull-to-refresh
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<'editor' | 'viewer'>('viewer');
   const [submitting, setSubmitting] = useState(false);
 
-  const fetchCollaborators = useCallback(async () => {
+  const fetchCollaborators = useCallback(async (isRefreshing = false) => {
     if (!activeOwnerId || !isOwner) {
       setCollaborators([]);
       setLoading(false);
+      setRefreshing(false);
       return;
     }
 
     try {
-      setLoading(true);
+      // Set appropriate loading state
+      if (isRefreshing) {
+        setRefreshing(true);
+      }
+      
       const data = await getCollaborationsByOwner(activeOwnerId);
       setCollaborators(data);
     } catch (error) {
@@ -44,14 +50,19 @@ export default function CollaboratorsScreen() {
       );
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [activeOwnerId, isOwner, t]);
 
   useFocusEffect(
     useCallback(() => {
-      fetchCollaborators();
+      fetchCollaborators(false);
     }, [fetchCollaborators])
   );
+
+  const handleRefresh = useCallback(() => {
+    fetchCollaborators(true);
+  }, [fetchCollaborators]);
 
   useEffect(() => {
     if (!ownerLoading && !isOwner) {
@@ -76,12 +87,49 @@ export default function CollaboratorsScreen() {
             try {
               if (!activeOwnerId) return;
               await removeCollaborator(activeOwnerId, memberId);
-              fetchCollaborators();
+              fetchCollaborators(false);
             } catch (error) {
               console.error('Error removing collaborator:', error);
               Alert.alert(
                 t('common.error') || 'שגיאה',
                 t('collaborators.removeError') || 'לא ניתן להסיר את המשתף'
+              );
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleChangeRole = (memberId: string, displayName: string, currentRole: 'editor' | 'viewer') => {
+    const newRole = currentRole === 'editor' ? 'viewer' : 'editor';
+    const newRoleLabel = newRole === 'editor'
+      ? (t('collaborators.roleEditor') || 'עורך')
+      : (t('collaborators.roleViewer') || 'צופה');
+
+    Alert.alert(
+      t('collaborators.changeRoleTitle') || 'שינוי הרשאות',
+      (t('collaborators.changeRoleMessage') || 'האם לשנות את ההרשאות של {{name}} ל{{role}}?')
+        .replace('{{name}}', displayName)
+        .replace('{{role}}', newRoleLabel),
+      [
+        { text: t('common.cancel') || 'ביטול', style: 'cancel' },
+        {
+          text: t('common.confirm') || 'אישור',
+          onPress: async () => {
+            try {
+              if (!activeOwnerId) return;
+              await updateCollaboratorRole(activeOwnerId, memberId, newRole);
+              fetchCollaborators(false);
+              Alert.alert(
+                t('common.success') || 'בוצע',
+                t('collaborators.roleChanged') || 'ההרשאות עודכנו בהצלחה'
+              );
+            } catch (error) {
+              console.error('Error changing role:', error);
+              Alert.alert(
+                t('common.error') || 'שגיאה',
+                t('collaborators.changeRoleError') || 'לא ניתן לשנות את ההרשאות'
               );
             }
           },
@@ -98,7 +146,7 @@ export default function CollaboratorsScreen() {
       case 'success':
         setInviteEmail('');
         setInviteRole('viewer');
-        fetchCollaborators();
+        fetchCollaborators(false);
         Alert.alert(t('common.success') || 'בוצע', t('collaborators.inviteSuccess') || 'ההזמנה נשלחה בהצלחה');
         break;
       case 'not_found':
@@ -163,17 +211,34 @@ export default function CollaboratorsScreen() {
                 {name}
               </Text>
               <View style={[styles.collaboratorMeta, rtlContainer]}>
-                <Chip
-                  mode="flat"
-                  compact
-                  style={[
-                    styles.roleChip,
-                    entry.collaboration.role === 'editor' ? styles.roleChipEditor : styles.roleChipViewer
-                  ]}
-                  textStyle={styles.roleChipText}
+                <TouchableOpacity
+                  onPress={() => handleChangeRole(
+                    entry.collaboration.member_id,
+                    name,
+                    entry.collaboration.role as 'editor' | 'viewer'
+                  )}
+                  activeOpacity={0.7}
+                  style={styles.roleChipTouchable}
                 >
-                  {roleLabel}
-                </Chip>
+                  <Chip
+                    mode="flat"
+                    compact
+                    style={[
+                      styles.roleChip,
+                      entry.collaboration.role === 'editor' ? styles.roleChipEditor : styles.roleChipViewer
+                    ]}
+                    textStyle={styles.roleChipText}
+                    icon={() => (
+                      <MaterialCommunityIcons
+                        name="swap-horizontal"
+                        size={14}
+                        color={THEME_COLORS.primary}
+                      />
+                    )}
+                  >
+                    {roleLabel}
+                  </Chip>
+                </TouchableOpacity>
                 <Chip
                   mode="flat"
                   compact
@@ -203,25 +268,25 @@ export default function CollaboratorsScreen() {
     );
   };
 
-  if (ownerLoading || !isOwner) {
-    return (
-      <View style={[styles.container, styles.center]}>
-        <ActivityIndicator />
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
-      <Appbar.Header>
+      <Appbar.Header style={{ backgroundColor: '#F5F5F5' }}>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title={t('collaborators.title') || 'ניהול משתפי פעולה'} />
       </Appbar.Header>
 
-      <ScrollView 
-        contentContainerStyle={styles.content} 
+      <ScrollView
+        contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[THEME_COLORS.primary]}
+            tintColor={THEME_COLORS.primary}
+          />
+        }
       >
         {/* Current Collaborators Section */}
         <Card style={styles.sectionCard}>
@@ -397,275 +462,279 @@ export default function CollaboratorsScreen() {
 
 function createStyles(isRTL: boolean) {
   return StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8F9FA',
-  },
-  content: {
-    padding: 16,
-    paddingBottom: 24,
-  },
-  sectionCard: {
-    marginBottom: 16,
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  sectionCardContent: {
-    paddingVertical: 20,
-    paddingHorizontal: 20,
-  },
-  sectionHeader: {
-    flexDirection: isRTL ? 'row-reverse' : 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-    gap: 12,
-  },
-  sectionIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: `${THEME_COLORS.primary}15`,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  sectionHeaderText: {
-    flex: 1,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#212121',
-    letterSpacing: 0.2,
-    marginBottom: 4,
-  },
-  sectionSubtitle: {
-    fontSize: 14,
-    color: '#757575',
-    fontWeight: '400',
-  },
-  collaboratorsList: {
-    gap: 12,
-  },
-  collaboratorCard: {
-    borderRadius: 12,
-    backgroundColor: '#FAFAFA',
-    borderWidth: 1,
-    borderColor: '#F0F0F0',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 1,
-      },
-    }),
-  },
-  collaboratorCardContent: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-  },
-  collaboratorRow: {
-    flexDirection: isRTL ? 'row-reverse' : 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  collaboratorIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: `${THEME_COLORS.primary}15`,
-    justifyContent: 'center',
-    alignItems: 'center',
-    flexShrink: 0,
-  },
-  collaboratorInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-  collaboratorName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#212121',
-    marginBottom: 8,
-  },
-  collaboratorMeta: {
-    flexDirection: isRTL ? 'row-reverse' : 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  roleChip: {
-    height: 24,
-    paddingHorizontal: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  roleChipEditor: {
-    backgroundColor: `${THEME_COLORS.primary}20`,
-  },
-  roleChipViewer: {
-    backgroundColor: '#E3F2FD',
-  },
-  roleChipText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: THEME_COLORS.primary,
-    textAlign: 'center',
-    textAlignVertical: 'center',
-    includeFontPadding: false,
-    lineHeight: 22,
-    paddingTop: 0,
-    paddingBottom: 0,
-    marginTop: 0,
-  },
-  statusChip: {
-    height: 24,
-    paddingHorizontal: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  statusChipActive: {
-    backgroundColor: '#E8F5E9',
-  },
-  statusChipPending: {
-    backgroundColor: '#FFF3E0',
-  },
-  statusChipInactive: {
-    backgroundColor: '#F5F5F5',
-  },
-  statusChipText: {
-    fontSize: 12,
-    fontWeight: '500',
-    textAlign: 'center',
-    textAlignVertical: 'center',
-    includeFontPadding: false,
-    lineHeight: 20,
-    paddingTop: 0,
-    paddingBottom: 0,
-    marginTop: 0,
-  },
-  statusChipActiveText: {
-    color: '#2E7D32',
-  },
-  statusChipPendingText: {
-    color: '#F57C00',
-  },
-  statusChipInactiveText: {
-    color: '#757575',
-  },
-  deleteButton: {
-    margin: 0,
-    width: 40,
-    height: 40,
-  },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 40,
-    paddingHorizontal: 20,
-  },
-  emptyStateText: {
-    marginTop: 16,
-    color: '#757575',
-    textAlign: 'center',
-    fontSize: 14,
-  },
-  input: {
-    marginBottom: 20,
-    backgroundColor: '#FAFAFA',
-  },
-  roleLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#212121',
-    marginBottom: 12,
-  },
-  roleChipsContainer: {
-    flexDirection: isRTL ? 'row-reverse' : 'row',
-    gap: 12,
-    marginBottom: 20,
-  },
-  roleOption: {
-    flex: 1,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#E0E0E0',
-    backgroundColor: '#FAFAFA',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-  },
-  roleOptionSelected: {
-    borderColor: THEME_COLORS.primary,
-    backgroundColor: `${THEME_COLORS.primary}08`,
-  },
-  roleOptionContent: {
-    flexDirection: isRTL ? 'row-reverse' : 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  roleOptionTextContainer: {
-    flex: 1,
-    minWidth: 0,
-  },
-  roleOptionText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#212121',
-    marginBottom: 2,
-  },
-  roleOptionTextSelected: {
-    color: THEME_COLORS.primary,
-  },
-  roleOptionDescription: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: '#757575',
-  },
-  roleOptionDescriptionSelected: {
-    color: THEME_COLORS.primary,
-    opacity: 0.8,
-  },
-  inviteButton: {
-    borderRadius: 12,
-    marginTop: 4,
-    ...Platform.select({
-      ios: {
-        shadowColor: THEME_COLORS.primary,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  inviteButtonContent: {
-    paddingVertical: 6,
-  },
-  inviteButtonLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  center: {
-    paddingVertical: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+    container: {
+      flex: 1,
+      backgroundColor: '#F8F9FA',
+    },
+    content: {
+      padding: 16,
+      paddingBottom: 24,
+    },
+    sectionCard: {
+      marginBottom: 16,
+      borderRadius: 16,
+      backgroundColor: '#FFFFFF',
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.08,
+          shadowRadius: 8,
+        },
+        android: {
+          elevation: 2,
+        },
+      }),
+    },
+    sectionCardContent: {
+      paddingVertical: 20,
+      paddingHorizontal: 20,
+    },
+    sectionHeader: {
+      flexDirection: isRTL ? 'row-reverse' : 'row',
+      alignItems: 'center',
+      marginBottom: 20,
+      gap: 12,
+    },
+    sectionIconContainer: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: `${THEME_COLORS.primary}15`,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    sectionHeaderText: {
+      flex: 1,
+    },
+    sectionTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: '#212121',
+      letterSpacing: 0.2,
+      marginBottom: 4,
+    },
+    sectionSubtitle: {
+      fontSize: 14,
+      color: '#757575',
+      fontWeight: '400',
+    },
+    collaboratorsList: {
+      gap: 12,
+    },
+    collaboratorCard: {
+      borderRadius: 12,
+      backgroundColor: '#FAFAFA',
+      borderWidth: 1,
+      borderColor: '#F0F0F0',
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 4,
+        },
+        android: {
+          elevation: 1,
+        },
+      }),
+    },
+    collaboratorCardContent: {
+      paddingVertical: 14,
+      paddingHorizontal: 16,
+    },
+    collaboratorRow: {
+      flexDirection: isRTL ? 'row-reverse' : 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    collaboratorIconContainer: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: `${THEME_COLORS.primary}15`,
+      justifyContent: 'center',
+      alignItems: 'center',
+      flexShrink: 0,
+    },
+    collaboratorInfo: {
+      flex: 1,
+      minWidth: 0,
+    },
+    collaboratorName: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: '#212121',
+      marginBottom: 8,
+    },
+    collaboratorMeta: {
+      flexDirection: isRTL ? 'row-reverse' : 'row',
+      alignItems: 'center',
+      gap: 8,
+      flexWrap: 'wrap',
+    },
+    roleChipTouchable: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    roleChip: {
+      height: 24,
+      paddingHorizontal: 8,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    roleChipEditor: {
+      backgroundColor: `${THEME_COLORS.primary}20`,
+    },
+    roleChipViewer: {
+      backgroundColor: '#E3F2FD',
+    },
+    roleChipText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: THEME_COLORS.primary,
+      textAlign: 'center',
+      textAlignVertical: 'center',
+      includeFontPadding: false,
+      lineHeight: 22,
+      paddingTop: 0,
+      paddingBottom: 0,
+      marginTop: 0,
+    },
+    statusChip: {
+      height: 24,
+      paddingHorizontal: 8,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    statusChipActive: {
+      backgroundColor: '#E8F5E9',
+    },
+    statusChipPending: {
+      backgroundColor: '#FFF3E0',
+    },
+    statusChipInactive: {
+      backgroundColor: '#F5F5F5',
+    },
+    statusChipText: {
+      fontSize: 12,
+      fontWeight: '500',
+      textAlign: 'center',
+      textAlignVertical: 'center',
+      includeFontPadding: false,
+      lineHeight: 20,
+      paddingTop: 0,
+      paddingBottom: 0,
+      marginTop: 0,
+    },
+    statusChipActiveText: {
+      color: '#2E7D32',
+    },
+    statusChipPendingText: {
+      color: '#F57C00',
+    },
+    statusChipInactiveText: {
+      color: '#757575',
+    },
+    deleteButton: {
+      margin: 0,
+      width: 40,
+      height: 40,
+    },
+    emptyState: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 40,
+      paddingHorizontal: 20,
+    },
+    emptyStateText: {
+      marginTop: 16,
+      color: '#757575',
+      textAlign: 'center',
+      fontSize: 14,
+    },
+    input: {
+      marginBottom: 20,
+      backgroundColor: '#FAFAFA',
+    },
+    roleLabel: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: '#212121',
+      marginBottom: 12,
+    },
+    roleChipsContainer: {
+      flexDirection: isRTL ? 'row-reverse' : 'row',
+      gap: 12,
+      marginBottom: 20,
+    },
+    roleOption: {
+      flex: 1,
+      borderRadius: 12,
+      borderWidth: 2,
+      borderColor: '#E0E0E0',
+      backgroundColor: '#FAFAFA',
+      paddingVertical: 14,
+      paddingHorizontal: 16,
+    },
+    roleOptionSelected: {
+      borderColor: THEME_COLORS.primary,
+      backgroundColor: `${THEME_COLORS.primary}08`,
+    },
+    roleOptionContent: {
+      flexDirection: isRTL ? 'row-reverse' : 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    roleOptionTextContainer: {
+      flex: 1,
+      minWidth: 0,
+    },
+    roleOptionText: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: '#212121',
+      marginBottom: 2,
+    },
+    roleOptionTextSelected: {
+      color: THEME_COLORS.primary,
+    },
+    roleOptionDescription: {
+      fontSize: 12,
+      fontWeight: '400',
+      color: '#757575',
+    },
+    roleOptionDescriptionSelected: {
+      color: THEME_COLORS.primary,
+      opacity: 0.8,
+    },
+    inviteButton: {
+      borderRadius: 12,
+      marginTop: 4,
+      ...Platform.select({
+        ios: {
+          shadowColor: THEME_COLORS.primary,
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.2,
+          shadowRadius: 4,
+        },
+        android: {
+          elevation: 2,
+        },
+      }),
+    },
+    inviteButtonContent: {
+      paddingVertical: 6,
+    },
+    inviteButtonLabel: {
+      fontSize: 15,
+      fontWeight: '600',
+    },
+    center: {
+      paddingVertical: 40,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
   });
 }
 

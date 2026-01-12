@@ -51,8 +51,8 @@ import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { supabase } from '@/lib/supabase/client';
 import { getRtlContainerStyles, getRtlTextStyles } from '@/lib/utils/rtlStyles';
-import { useRouter } from 'expo-router';
 import { handleContactSupport } from '@/lib/utils/support';
+import { useRouter } from 'expo-router';
 
 // Import logo image
 const logoImage = require('../../assets/images/logo.png');
@@ -90,6 +90,18 @@ export default function LoginScreen() {
   const rtlText = getRtlTextStyles(isRTL);
   const rtlTextCenter = getRtlTextStyles(isRTL, 'center');
   // Removed checkingSession state - always show login screen immediately
+
+  /**
+   * Watch for auth status changes (e.g., after Google/Apple sign-in)
+   * Navigate to home when user becomes authenticated
+   */
+  useEffect(() => {
+    if (authStatus === 'authenticated' && authUser && !isNavigatingRef.current) {
+      isNavigatingRef.current = true;
+      // Navigate to index which will redirect to the appropriate screen
+      router.replace('/');
+    }
+  }, [authStatus, authUser, router]);
 
   /**
    * Check if user is already logged in (has an active session)

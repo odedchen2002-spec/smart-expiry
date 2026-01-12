@@ -3,13 +3,13 @@
  * Enhanced with secure refresh token storage
  */
 
-import { supabase } from './client';
-import type { User, Session, AuthError } from '@supabase/supabase-js';
-import { storeSessionTokens } from '../auth/refreshToken';
-import { TERMS_HASH, CURRENT_TERMS_TEXT } from '../constants/legal';
-import { Alert, Platform } from 'react-native';
+import type { AuthError, Session, User } from '@supabase/supabase-js';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
+import { Alert, Platform } from 'react-native';
+import { storeSessionTokens } from '../auth/refreshToken';
+import { CURRENT_TERMS_TEXT, TERMS_HASH } from '../constants/legal';
+import { supabase } from './client';
 
 export interface SignUpData {
   email: string;
@@ -232,23 +232,50 @@ type SyncTermsResult =
 /**
  * Ensure the user's auth email is stored on the profile row.
  * This runs after signup / on session to keep the "email" field in sync.
+ * 
+ * IMPORTANT: If the auth email is an Apple private relay email, we do NOT
+ * overwrite an existing real email in the profile. This preserves the
+ * contact email the user entered during profile completion.
  */
 export async function syncAuthEmailToProfile(user: User): Promise<SyncEmailResult> {
   const authUserId = user?.id;
-  const email = user?.email ?? null;
+  const authEmail = user?.email ?? null;
 
-  console.log('[Auth] syncAuthEmailToProfile called', { authUserId, email });
+  console.log('[Auth] syncAuthEmailToProfile called', { authUserId, authEmail });
 
-  if (!authUserId || !email) {
+  if (!authUserId || !authEmail) {
     console.log('[Auth] Missing authUserId or email, skipping profile email sync');
     return { success: true };
   }
 
+  // Check if this is an Apple private relay email
+  const isPrivateRelayEmail = authEmail.endsWith('@privaterelay.appleid.com');
+
   try {
+    // If it's a private relay email, check if profile already has a real email
+    if (isPrivateRelayEmail) {
+      const { data: existingProfile } = await supabase
+        .from('profiles')
+        .select('email')
+        .eq('id', authUserId)
+        .maybeSingle();
+
+      const existingEmail = existingProfile?.email?.trim() ?? '';
+      const hasRealEmail = existingEmail !== '' && !existingEmail.endsWith('@privaterelay.appleid.com');
+
+      if (hasRealEmail) {
+        console.log('[Auth] Profile already has real email, skipping private relay email sync', {
+          authUserId,
+          existingEmail,
+        });
+        return { success: true };
+      }
+    }
+
     // First try to UPDATE existing profile row
     const { data, error } = await supabase
       .from('profiles')
-      .update({ email })
+      .update({ email: authEmail })
       .eq('id', authUserId)
       .select('id, email')
       .single();
@@ -258,14 +285,14 @@ export async function syncAuthEmailToProfile(user: User): Promise<SyncEmailResul
       if ((error as any).code === 'PGRST116') {
         console.log('[Auth] No profile row found for email sync, attempting to INSERT profile with email', {
           authUserId,
-          email,
+          email: authEmail,
         });
 
         const { data: insertData, error: insertError } = await supabase
           .from('profiles')
           .insert({
             id: authUserId,
-            email,
+            email: authEmail,
           })
           .select('id, email')
           .single();
@@ -370,8 +397,17 @@ export async function signUp({ email, password, username, hasAcceptedTerms }: Si
 
     const trimmedUsername = username.trim();
 
+    // Normalize email: trim whitespace and convert to lowercase
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(normalizedEmail)) {
+      throw new Error('Invalid email address');
+    }
+
     const { data, error } = await supabase.auth.signUp({
-      email,
+      email: normalizedEmail,
       password,
       options: {
         data: { username: trimmedUsername },
@@ -575,10 +611,19 @@ export async function signIn({ email, password }: SignInData) {
 
 /**
  * Sign out the current user
- * Revokes refresh token and clears secure storage
+ * Revokes refresh token, removes push tokens, and clears secure storage
  */
 export async function signOut() {
   try {
+    // Get current user ID before signing out (needed for push token removal)
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    // Remove push tokens to prevent notifications going to old account
+    if (user?.id) {
+      const { removeExpoPushToken } = await import('../notifications/pushNotifications');
+      await removeExpoPushToken(user.id);
+    }
+    
     // Revoke refresh token and clear storage
     const { revokeRefreshToken } = await import('../auth/refreshToken');
     await revokeRefreshToken();

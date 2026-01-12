@@ -1,11 +1,13 @@
-import React, { useMemo, useCallback, useRef, useState } from 'react';
+import React, { useMemo, useCallback, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { IconButton, Text } from 'react-native-paper';
+import { IconButton, Snackbar, Text } from 'react-native-paper';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useLanguage } from '@/context/LanguageContext';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
-import { useItems } from '@/lib/hooks/useItems';
+import { useItemsQuery } from '@/hooks/queries/useItemsQuery';
+import { useDeleteItem } from '@/hooks/writes/useDeleteItem';
+import { useUpdateItem } from '@/hooks/writes/useUpdateItem';
 import { SearchBar } from '@/components/search/SearchBar';
 import { filterItems } from '@/lib/utils/search';
 import { THEME_COLORS } from '@/lib/constants/colors';
@@ -16,6 +18,12 @@ import { TrialReminderDialog } from '@/components/subscription/TrialReminderDial
 import { Trial5DayReminderDialog } from '@/components/subscription/Trial5DayReminderDialog';
 import { TrialEndedDialog } from '@/components/subscription/TrialEndedDialog';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SkeletonItemList } from '@/components/items/SkeletonItemCard';
+import { logSoldFinished, logThrown } from '@/lib/supabase/services/expiryEventsService';
+import * as Haptics from 'expo-haptics';
+import type { Database } from '@/types/database';
+
+type Item = Database['public']['Views']['items_with_details']['Row'];
 
 export default function ExpiredScreen() {
   const router = useRouter();
@@ -24,42 +32,144 @@ export default function ExpiredScreen() {
   const insets = useSafeAreaInsets();
   const { hasNew, markSeen } = useNotificationBadge();
   const { activeOwnerId, loading: ownerLoading } = useActiveOwner();
-  const { items, loading, error, refetch } = useItems({
-    scope: 'expired',
+  
+  // TanStack Query for reads (cache-first, no refetch-on-focus)
+  const { data: items = [], isFetching, error, refetch } = useItemsQuery({
     ownerId: activeOwnerId || undefined,
-    autoFetch: !!activeOwnerId,
+    scope: 'expired',
+    enabled: !!activeOwnerId,
   });
+  
+  // Determine if we have cached data
+  const hasCachedData = items.length > 0;
+  
+  // Show skeleton only if fetching AND no cached data (first load)
+  const showSkeleton = isFetching && !hasCachedData;
+  
+  // Outbox write hooks
+  const { deleteItem, undoDelete, canUndo: canUndoDelete } = useDeleteItem(activeOwnerId || '', 'expired');
+  const { updateItem, canUndoResolve, undoResolve } = useUpdateItem(activeOwnerId || '', 'expired');
+  
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Only refetch on focus if data is stale (older than 30 seconds) or if explicitly needed
-  // This prevents unnecessary refetches on every tab switch
-  const lastFetchRef = useRef<number>(0);
-  const STALE_TIME = 30000; // 30 seconds
-
-  useFocusEffect(
-    useCallback(() => {
-      if (activeOwnerId) {
-        const now = Date.now();
-        // Only refetch if data is stale (older than 30 seconds) or never fetched
-        if (now - lastFetchRef.current > STALE_TIME || lastFetchRef.current === 0) {
-          refetch();
-          lastFetchRef.current = Date.now();
-        }
-      }
-    }, [activeOwnerId, refetch])
-  );
-
   // Filter items based on search query
   const filteredItems = useMemo(() => {
-    return filterItems(items, searchQuery);
+    // CRITICAL: Filter out soft-deleted items (marked for deletion with undo window)
+    // This prevents duplicate key errors and ensures deleted items don't appear in UI
+    let filtered = items.filter((item) => !(item as any)._deleted);
+    
+    // Note: No need to filter status === 'resolved' here
+    // The reconcileUpdate in OutboxProcessor already removes them from 'expired' cache
+    
+    // SAFETY: Remove duplicate IDs (in case of optimistic + reconcile race)
+    const seenIds = new Set<string>();
+    const duplicates = new Set<string>();
+    filtered = filtered.filter((item) => {
+      if (seenIds.has(item.id)) {
+        duplicates.add(item.id);
+        return false;
+      }
+      seenIds.add(item.id);
+      return true;
+    });
+    
+    // Log duplicates only once (if any found)
+    if (duplicates.size > 0) {
+      console.warn('[ExpiredScreen] Duplicate IDs filtered:', Array.from(duplicates));
+    }
+    
+    return filterItems(filtered, searchQuery);
   }, [items, searchQuery]);
 
+  // Pull-to-refresh (ONLY manual refetch path)
   const handleRefresh = async () => {
     setRefreshing(true);
     await refetch();
     setRefreshing(false);
   };
+
+  // Handle sold/finished action
+  const handleSoldFinished = useCallback(async (item: Item) => {
+    if (!activeOwnerId) return;
+    
+    // Haptic feedback immediately
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
+    // Background: Log event (fire-and-forget) and update via Outbox
+    try {
+      // Log the event (fire-and-forget, no await)
+      void logSoldFinished(
+        activeOwnerId,
+        item.id,
+        item.barcode_snapshot || item.product_barcode || undefined,
+        item.product_name || undefined
+      );
+      
+      // Mark item as resolved via Outbox (will remove immediately + 5s undo)
+      await updateItem({
+        itemId: item.id,
+        updates: { status: 'resolved' as any, resolved_reason: 'sold' },
+      });
+      
+      // Success haptic
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('[ExpiredScreen] Error handling sold/finished:', error);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  }, [activeOwnerId, updateItem]);
+
+  // Handle thrown action
+  const handleThrown = useCallback(async (item: Item) => {
+    if (!activeOwnerId) return;
+    
+    // Haptic feedback immediately
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
+    // Background: Log event (fire-and-forget) and update via Outbox
+    try {
+      // Log the event (fire-and-forget, no await)
+      void logThrown(
+        activeOwnerId,
+        item.id,
+        item.barcode_snapshot || item.product_barcode || undefined,
+        item.product_name || undefined
+      );
+      
+      // Mark item as resolved via Outbox (will remove immediately + 5s undo)
+      await updateItem({
+        itemId: item.id,
+        updates: { status: 'resolved' as any, resolved_reason: 'disposed' },
+      });
+      
+      // Success haptic
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('[ExpiredScreen] Error handling thrown:', error);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  }, [activeOwnerId, updateItem]);
+
+  // Handle delete action with Outbox + Undo
+  const handleDelete = useCallback(async (item: Item) => {
+    // Guard against missing owner
+    if (!activeOwnerId) return;
+    
+    // Haptic feedback immediately
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
+    try {
+      // Delete via Outbox (soft-delete with undo)
+      await deleteItem(item.id);
+      
+      // Success haptic (snackbar managed by hook)
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('[ExpiredScreen] Error deleting item:', error);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  }, [activeOwnerId, deleteItem]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: '#F8F9FA' }]} edges={[]}>
@@ -100,13 +210,6 @@ export default function ExpiredScreen() {
                 />
                 {hasNew && <View style={styles.badgeDot} />}
               </View>
-              <IconButton
-                icon="folder-cog-outline"
-                size={19}
-                onPress={() => router.push('/categories' as any)}
-                iconColor="rgba(255, 255, 255, 0.72)"
-                style={styles.headerIcon}
-              />
             </View>
           </View>
         </LinearGradient>
@@ -141,20 +244,67 @@ export default function ExpiredScreen() {
 
         <UpgradeBanner />
 
-        <CategoryCardList
-          items={filteredItems}
-          loading={loading || ownerLoading}
-          error={error}
-          onRefresh={handleRefresh}
-          refreshing={refreshing}
-          searchQuery={searchQuery}
-          emptyMessage={t('screens.expired.empty')}
-          sortDirection="desc"
-        />
+        {showSkeleton ? (
+          <SkeletonItemList count={8} />
+        ) : (
+          <CategoryCardList
+            items={filteredItems}
+            loading={ownerLoading}
+            error={error}
+            onRefresh={handleRefresh}
+            refreshing={refreshing}
+            searchQuery={searchQuery}
+            emptyMessage={t('screens.expired.empty')}
+            sortDirection="desc"
+            showExpiryActions
+            onSoldFinished={handleSoldFinished}
+            onThrown={handleThrown}
+          />
+        )}
       </View>
       <Trial5DayReminderDialog />
       <TrialReminderDialog />
       <TrialEndedDialog />
+      
+      {/* Snackbar with Undo for Delete */}
+      {canUndoDelete && (
+        <Snackbar
+          visible={true}
+          onDismiss={() => {
+            // Note: actual cleanup happens in hook timer
+          }}
+          duration={5000}
+          action={{
+            label: t('common.cancel'),
+            onPress: () => {
+              undoDelete();
+            },
+          }}
+          style={{ marginBottom: insets.bottom + 70 }}
+        >
+          {t('common.product_deleted')}
+        </Snackbar>
+      )}
+
+      {/* Snackbar with Undo for Resolve (Sold/Thrown) */}
+      {canUndoResolve && (
+        <Snackbar
+          visible={true}
+          onDismiss={() => {
+            // Note: actual cleanup happens in hook timer
+          }}
+          duration={5000}
+          action={{
+            label: t('common.cancel'),
+            onPress: () => {
+              undoResolve();
+            },
+          }}
+          style={{ marginBottom: insets.bottom + 70 }}
+        >
+          {t('common.item_resolved')}
+        </Snackbar>
+      )}
     </SafeAreaView>
   );
 }
@@ -277,6 +427,49 @@ function createStyles(isRTL: boolean) {
     paddingTop: 10,
     paddingBottom: 8,
     backgroundColor: '#F8F9FA',
+  },
+  snackbar: {
+    backgroundColor: '#22C55E',
+    marginBottom: 100,
+  },
+  undoContainer: {
+    position: 'absolute',
+    bottom: 100,
+    left: 16,
+    right: 16,
+    alignItems: 'center',
+  },
+  undoCard: {
+    backgroundColor: '#1F2937',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  undoButton: {
+    backgroundColor: 'transparent',
+    marginVertical: 0,
+    marginHorizontal: 0,
+    paddingHorizontal: 0,
+  },
+  undoButtonLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#60A5FA',
+    marginHorizontal: 0,
+  },
+  undoMessage: {
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontSize: 14,
+    fontWeight: '500',
+    flex: 1,
   },
   });
 }

@@ -1,6 +1,9 @@
 /**
  * Subscription / Paywall Screen
- * Allows users to choose and upgrade to Pro plan
+ * Allows users to choose between Pro and Pro+ plans
+ * 
+ * Pro (29₪): For small businesses - 20 AI pages/month, 2000 products
+ * Pro+ (59₪): For high-volume businesses - fair use limits
  */
 
 import { useAuth } from '@/context/AuthContext';
@@ -30,29 +33,32 @@ import {
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+type PlanType = 'pro' | 'pro_plus';
+
 export default function SubscribeScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { t, isRTL } = useLanguage();
-  const { refetch: refetchProfile } = useProfile(); // Get profile refetch function
+  const { refetch: refetchProfile } = useProfile();
   const rtlContainer = getRtlContainerStyles(isRTL);
   const rtlText = getRtlTextStyles(isRTL);
   const styles = createStyles(isRTL);
   const theme = useTheme();
   const params = useLocalSearchParams<{ plan?: string }>();
-  const preselectedPlan = params?.plan as SubscriptionTier | undefined;
+  const preselectedPlan = params?.plan as PlanType | undefined;
 
   const [loading, setLoading] = useState(true);
   const [iapProcessing, setIapProcessing] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [snack, setSnack] = useState<string | null>(null);
   const [currentSubscription, setCurrentSubscription] = useState<SubscriptionStatus | null>(null);
-  const [highlightedPlan, setHighlightedPlan] = useState<SubscriptionTier | undefined>(preselectedPlan);
+  const [selectedPlan, setSelectedPlan] = useState<PlanType>(preselectedPlan || 'pro_plus');
   
-  // Get localized pricing from App Store / Play Store
   const { 
     proPriceString, 
-    purchasePro: iapPurchasePro, 
+    proPlusPriceString,
+    purchasePro: iapPurchasePro,
+    purchaseProPlus: iapPurchaseProPlus,
     restore: iapRestore,
     isReady: isIAPReady,
     isLoading: isIAPLoading,
@@ -62,7 +68,7 @@ export default function SubscribeScreen() {
     retry: retryIAP,
   } = useIAP();
   
-  // Crown animation
+  // Animation
   const crownScale = useSharedValue(1);
   const crownAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: crownScale.value }],
@@ -71,11 +77,10 @@ export default function SubscribeScreen() {
   useEffect(() => {
     loadCurrentSubscription();
     if (preselectedPlan) {
-      setHighlightedPlan(preselectedPlan);
+      setSelectedPlan(preselectedPlan);
     }
   }, [user?.id, preselectedPlan]);
 
-  // Crown animation on mount
   useEffect(() => {
     crownScale.value = withDelay(
       500,
@@ -86,7 +91,6 @@ export default function SubscribeScreen() {
     );
   }, []);
 
-  // Refresh subscription when screen comes into focus (e.g., after returning from Stripe checkout)
   useFocusEffect(
     React.useCallback(() => {
       if (user?.id) {
@@ -95,18 +99,13 @@ export default function SubscribeScreen() {
     }, [user?.id])
   );
 
-  // Also refresh when app comes to foreground (user might return from Stripe checkout)
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       if (nextAppState === 'active' && user?.id) {
-        // Refresh subscription status when app becomes active
         loadCurrentSubscription();
       }
     });
-
-    return () => {
-      subscription.remove();
-    };
+    return () => subscription.remove();
   }, [user?.id]);
 
   const loadCurrentSubscription = async () => {
@@ -114,16 +113,10 @@ export default function SubscribeScreen() {
       setLoading(false);
       return;
     }
-
     try {
       setLoading(true);
       const status = await getSubscriptionStatus(user.id);
       setCurrentSubscription(status);
-      logSubscription('[Paywall] Subscription status loaded:', {
-        tier: status?.subscription_tier,
-        validUntil: status?.subscription_valid_until,
-        autoRenew: status?.auto_renew,
-      });
     } catch (error) {
       console.error('[Paywall] Error loading subscription:', error);
     } finally {
@@ -131,36 +124,63 @@ export default function SubscribeScreen() {
     }
   };
 
-  const handlePurchasePro = async () => {
+  const handlePurchase = async (plan: PlanType) => {
     if (!user?.id) {
       setSnack(t('subscription.subscribe.loginRequired'));
       return;
     }
 
+    // Check if user is downgrading from Pro+ to Pro
+    const currentTier = getCurrentTier();
+    if (currentTier === 'pro_plus' && plan === 'pro') {
+      // Show confirmation dialog
+      Alert.alert(
+        t('subscription.subscribe.downgradeDialog.title'),
+        t('subscription.subscribe.downgradeDialog.message') + '\n' +
+        t('subscription.subscribe.downgradeDialog.limit1') + '\n' +
+        t('subscription.subscribe.downgradeDialog.limit2') +
+        t('subscription.subscribe.downgradeDialog.whenChange') + '\n' +
+        t('subscription.subscribe.downgradeDialog.untilThen'),
+        [
+          {
+            text: t('subscription.subscribe.downgradeDialog.cancel'),
+            style: 'cancel',
+            onPress: () => {
+              logSubscription('[Paywall] User cancelled downgrade from Pro+ to Pro');
+            }
+          },
+          {
+            text: t('subscription.subscribe.downgradeDialog.continue'),
+            onPress: () => {
+              logSubscription('[Paywall] User confirmed downgrade from Pro+ to Pro');
+              proceedWithPurchase(plan);
+            }
+          }
+        ],
+        { cancelable: true }
+      );
+      return;
+    }
+
+    // Proceed with purchase normally
+    await proceedWithPurchase(plan);
+  };
+
+  const proceedWithPurchase = async (plan: PlanType) => {
+    if (!user?.id) return;
+
     const devEnv = isDevEnv();
-    logSubscription('[Paywall] Upgrade button pressed, isDevEnv =', devEnv);
+    logSubscription('[Paywall] Purchase button pressed', { plan, isDevEnv: devEnv });
 
     // DEV-ONLY: Mock upgrade flow
     if (devEnv) {
-      logSubscription('[Subscription] DEV BUILD: mocking Pro upgrade');
-      
       try {
         setIapProcessing(true);
-        
-        // 1) Call mock upgrade function that sets subscription tier to "pro"
-        await mockDevUpgradeToPro(user.id);
-        
-        // 2) Refetch profile to update subscription state
-        // This triggers useSubscription to recalculate, which will unlock items
+        await mockDevUpgradeToPro(user.id!, plan);
         await refetchProfile();
-        
-        // 3) Reload subscription status
         await loadCurrentSubscription();
-        
-        // 4) Show dev-only alert
-        Alert.alert('Dev mode', 'You are now on Pro (mock upgrade).');
-        
-        setSnack('DEV: Mock Pro upgrade successful');
+        Alert.alert('Dev mode', `You are now on ${plan === 'pro' ? 'Pro' : 'Pro+'} (mock upgrade).`);
+        setSnack(`DEV: Mock ${plan} upgrade successful`);
       } catch (error: any) {
         console.error('[Subscription] DEV mock upgrade failed:', error);
         Alert.alert('Dev mode', 'Mock upgrade failed, check logs.');
@@ -168,22 +188,18 @@ export default function SubscribeScreen() {
       } finally {
         setIapProcessing(false);
       }
-      
       return;
     }
 
-    // --- PRODUCTION / REAL FLOW ---
-    // Use App Store / Play Store IAP
+    // PRODUCTION: Real IAP flow
     try {
       setIapProcessing(true);
-      
-      const result = await iapPurchasePro();
+      const purchaseFn = plan === 'pro' ? iapPurchasePro : iapPurchaseProPlus;
+      const result = await purchaseFn();
       
       if (result.success) {
-        // Purchase was initiated - the purchase listener will handle completion
         logSubscription('[Paywall] IAP purchase initiated');
       } else if (result.error === 'user_cancelled') {
-        // User cancelled - no error message needed
         logSubscription('[Paywall] User cancelled purchase');
       } else {
         setSnack(t('subscription.subscribe.purchaseError'));
@@ -200,12 +216,9 @@ export default function SubscribeScreen() {
   const handleRestore = async () => {
     try {
       setRestoring(true);
-      
       const result = await iapRestore();
-      
       if (result.success) {
         if (result.restored) {
-          // Refresh subscription status
           await refetchProfile();
           await loadCurrentSubscription();
           setSnack(t('subscription.subscribe.restoreSuccess'));
@@ -225,27 +238,57 @@ export default function SubscribeScreen() {
 
   const getCurrentTier = (): SubscriptionTier => {
     if (!currentSubscription) return 'free';
-    // Always trust Supabase data, not local state
     const tier = currentSubscription.subscription_tier;
-    // Check if subscription is expired - if so, treat as free
     if (tier !== 'free' && currentSubscription.subscription_valid_until) {
       const validUntil = new Date(currentSubscription.subscription_valid_until);
-      const now = new Date();
-      if (validUntil < now) {
-        return 'free';
-      }
+      if (validUntil < new Date()) return 'free';
     }
     return tier;
   };
 
   const currentTier = getCurrentTier();
-  // Only show "current plan" badge if Supabase confirms it's active
-  const isCurrentPlan = (tier: SubscriptionTier) => {
-    const effectiveTier = getCurrentTier();
-    return effectiveTier === tier;
+  const isCurrentPlan = (tier: SubscriptionTier) => getCurrentTier() === tier;
+
+  const renderPriceSection = (plan: PlanType) => {
+    const priceString = plan === 'pro' ? proPriceString : proPlusPriceString;
+    const fallbackPrice = plan === 'pro' ? SUBSCRIPTION_PLANS.pro.priceMonthly : SUBSCRIPTION_PLANS.pro_plus.priceMonthly;
+    const accentColor = plan === 'pro' ? '#4CAF50' : '#FF6B35';
+
+    // Loading state
+    if (isIAPLoading && !priceString) {
+      return (
+        <View style={styles.priceLoadingContainer}>
+          <ActivityIndicator size="small" color={accentColor} />
+          <Text variant="bodySmall" style={[styles.priceLoadingText, rtlText]}>
+            {t('subscription.subscribe.loadingPriceFriendly')}
+          </Text>
+        </View>
+      );
+    }
+
+    // Error state - friendly message for dev
+    if (iapError && !priceString && !isIAPLoading) {
+      return (
+        <View style={styles.priceErrorContainer}>
+          <Text variant="bodySmall" style={[styles.priceFallbackText, rtlText]}>
+            {t('subscription.subscribe.priceWillShowInStore')}
+          </Text>
+        </View>
+      );
+    }
+
+    // Price loaded or fallback
+    return (
+      <>
+        <Text variant="headlineSmall" style={[styles.priceAmount, { color: accentColor }, rtlText]}>
+          {priceString || `₪${fallbackPrice}`}
+        </Text>
+        <Text variant="bodySmall" style={[styles.priceUnit, rtlText]}>
+          {t('subscription.subscribe.pricePerMonth')}
+        </Text>
+      </>
+    );
   };
-
-
 
   if (loading) {
     return (
@@ -271,7 +314,6 @@ export default function SubscribeScreen() {
           <Appbar.Content title={t('subscription.subscribe.manageTitle')} />
         </Appbar.Header>
 
-        {/* Header Section - Fixed at top */}
         <View style={styles.headerSection}>
           <Text variant="headlineMedium" style={[styles.title, rtlText]}>
             {t('subscription.subscribe.headerTitle')}
@@ -284,188 +326,227 @@ export default function SubscribeScreen() {
         <ScrollView 
           style={styles.content} 
           contentContainerStyle={styles.contentContainer}
-          contentInsetAdjustmentBehavior="never"
           showsVerticalScrollIndicator={false}
         >
+          <View style={styles.plansContainer}>
+            {/* Pro Plan */}
+            <Card 
+              style={[
+                styles.planCard,
+                selectedPlan === 'pro' && styles.selectedCard,
+                isCurrentPlan('pro') && styles.currentPlanCard,
+              ]}
+              onPress={() => !isCurrentPlan('pro') && setSelectedPlan('pro')}
+            >
+              <View style={styles.cardContentWrapper}>
+                <Card.Content style={styles.cardContent}>
+                  {isCurrentPlan('pro') && (
+                    <View style={styles.currentBadge}>
+                      <MaterialCommunityIcons name="check-circle" size={14} color="#FFFFFF" />
+                      <Text style={styles.currentBadgeText}>{t('subscription.subscribe.currentPlan')}</Text>
+                    </View>
+                  )}
 
-        {/* Plans Grid */}
-        <View style={styles.plansContainer}>
-          {/* Pro Plan - Featured */}
-          <Card 
-            style={[
-              styles.planCard,
-              styles.proCard,
-              styles.featuredCard,
-              (highlightedPlan === 'pro' || isCurrentPlan('pro')) && styles.featuredCard,
-              isCurrentPlan('pro') && styles.currentPlanCard,
-            ]}
-            elevation={0}
-          >
-            {highlightedPlan === 'pro' && !isCurrentPlan('pro') && (
-              <View style={styles.popularBadge}>
-                <Text style={styles.popularBadgeText}>{t('subscription.subscribe.recommended')}</Text>
-              </View>
-            )}
-            <View style={styles.cardContentWrapper}>
-              <Card.Content style={styles.cardContent}>
-              {isCurrentPlan('pro') && (
-                <View style={styles.badgeContainer}>
-                  <View style={styles.badge}>
-                    <MaterialCommunityIcons name="check-circle" size={14} color="#FFFFFF" />
-                    <Text style={styles.badgeText}>{t('subscription.subscribe.currentPlan')}</Text>
+                  <View style={styles.planHeader}>
+                    <View style={[styles.iconCircle, { backgroundColor: '#E8F5E9' }]}>
+                      <MaterialCommunityIcons name="store" size={24} color="#4CAF50" />
+                    </View>
+                    <View style={styles.planTitleContainer}>
+                      <Text variant="titleLarge" style={[styles.planTitle, { color: '#4CAF50' }, rtlText]}>
+                        Pro
+                      </Text>
+                      <Text variant="bodySmall" style={[styles.planSubtitle, rtlText]}>
+                        {t('subscription.subscribe.proDescription')}
+                      </Text>
+                    </View>
                   </View>
-                </View>
-              )}
 
-              <View style={styles.planIconContainer}>
-                <Animated.View style={crownAnimatedStyle}>
-                  <View style={styles.crownGlow}>
-                    <LinearGradient
-                      colors={['#FF6B35', '#F7931E']}
-                      style={styles.iconCircle}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
+                  <View style={[styles.priceContainer, rtlContainer]}>
+                    {renderPriceSection('pro')}
+                  </View>
+
+                  <Divider style={styles.divider} />
+
+                  <View style={styles.featuresList}>
+                    <View style={[styles.featureItem, rtlContainer]}>
+                      <MaterialCommunityIcons name="check" size={18} color="#4CAF50" />
+                      <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
+                        {t('subscription.subscribe.proFeature1')}
+                      </Text>
+                    </View>
+                    <View style={[styles.featureItem, rtlContainer]}>
+                      <MaterialCommunityIcons name="check" size={18} color="#4CAF50" />
+                      <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
+                        {t('subscription.subscribe.proFeature2')}
+                      </Text>
+                    </View>
+                    <View style={[styles.featureItem, rtlContainer]}>
+                      <MaterialCommunityIcons name="check" size={18} color="#4CAF50" />
+                      <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
+                        {t('subscription.subscribe.proFeature3')}
+                      </Text>
+                    </View>
+                    <View style={[styles.featureItem, rtlContainer]}>
+                      <MaterialCommunityIcons name="check" size={18} color="#4CAF50" />
+                      <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
+                        {t('subscription.subscribe.proFeature4')}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {!isCurrentPlan('pro') && selectedPlan === 'pro' && (
+                    <Button
+                      mode="contained"
+                      onPress={() => handlePurchase('pro')}
+                      loading={iapProcessing || isPurchasing}
+                      disabled={iapProcessing || isPurchasing || restoring || isIAPRestoring}
+                      style={styles.upgradeButton}
+                      buttonColor="#4CAF50"
                     >
-                      <MaterialCommunityIcons name="crown" size={28} color="#FFFFFF" />
-                    </LinearGradient>
-                  </View>
-                </Animated.View>
-              </View>
-
-              <Text variant="titleMedium" style={[styles.planTitle, styles.proTitle, rtlText]}>
-                {t('settings.subscriptionLabel.pro')}
-              </Text>
-
-              <View style={styles.priceContainer}>
-                {/* Price loading state */}
-                {isIAPLoading && !proPriceString && (
-                  <View style={styles.priceLoadingContainer}>
-                    <ActivityIndicator size="small" color="#FF6B35" />
-                    <Text variant="bodySmall" style={[styles.priceLoadingText, rtlText]}>
-                      {t('subscription.subscribe.loadingPrice')}
-                    </Text>
-                  </View>
-                )}
-                
-                {/* Price error state */}
-                {iapError && !proPriceString && !isIAPLoading && (
-                  <View style={styles.priceErrorContainer}>
-                    <Text variant="bodySmall" style={[styles.priceErrorText, rtlText]}>
-                      {t('subscription.subscribe.priceLoadError')}
-                    </Text>
-                    <Button 
-                      mode="text" 
-                      onPress={retryIAP}
-                      compact
-                      labelStyle={styles.retryButtonLabel}
-                    >
-                      {t('subscription.subscribe.retryLoadPrice')}
+                      {isCurrentPlan('pro_plus') 
+                        ? t('subscription.subscribe.switchToPro')
+                        : t('subscription.subscribe.upgradeToPro')}
                     </Button>
+                  )}
+                </Card.Content>
+              </View>
+            </Card>
+
+            {/* Pro+ Plan - Featured */}
+            <Card 
+              style={[
+                styles.planCard,
+                styles.featuredCard,
+                selectedPlan === 'pro_plus' && styles.selectedCard,
+                isCurrentPlan('pro_plus') && styles.currentPlanCard,
+              ]}
+              onPress={() => !isCurrentPlan('pro_plus') && setSelectedPlan('pro_plus')}
+            >
+              {/* Most Popular Badge - hide if current plan */}
+              {!isCurrentPlan('pro_plus') && (
+                <View style={styles.popularBadge}>
+                  <MaterialCommunityIcons name="star" size={14} color="#FFFFFF" />
+                  <Text style={styles.popularBadgeText}>{t('subscription.subscribe.mostPopular')}</Text>
+                </View>
+              )}
+
+              <View style={styles.cardContentWrapper}>
+                <Card.Content style={[styles.cardContent, !isCurrentPlan('pro_plus') && { paddingTop: 32 }]}>
+                  {isCurrentPlan('pro_plus') && (
+                    <View style={styles.currentBadge}>
+                      <MaterialCommunityIcons name="check-circle" size={14} color="#FFFFFF" />
+                      <Text style={styles.currentBadgeText}>{t('subscription.subscribe.currentPlan')}</Text>
+                    </View>
+                  )}
+
+                  <View style={styles.planHeader}>
+                    <Animated.View style={crownAnimatedStyle}>
+                      <LinearGradient
+                        colors={['#FF6B35', '#F7931E']}
+                        style={styles.iconCircleGradient}
+                      >
+                        <MaterialCommunityIcons name="crown" size={24} color="#FFFFFF" />
+                      </LinearGradient>
+                    </Animated.View>
+                    <View style={styles.planTitleContainer}>
+                      <Text variant="titleLarge" style={[styles.planTitle, { color: '#FF6B35' }, rtlText]}>
+                        Pro+
+                      </Text>
+                      <Text variant="bodySmall" style={[styles.planSubtitle, rtlText]}>
+                        {t('subscription.subscribe.proPlusDescription')}
+                      </Text>
+                    </View>
                   </View>
-                )}
-                
-                {/* Price loaded successfully */}
-                {(proPriceString || (!isIAPLoading && !iapError)) && (
-                  <>
-                    <Text variant="headlineSmall" style={[styles.priceAmount, styles.proPrice, rtlText]}>
-                      {proPriceString || `₪${SUBSCRIPTION_PLANS.pro.priceMonthly}`}
-                    </Text>
-                    <Text variant="bodySmall" style={[styles.priceUnit, rtlText]}>
-                      {t('subscription.subscribe.pricePerMonth')}
-                    </Text>
-                  </>
-                )}
+
+                  <View style={[styles.priceContainer, rtlContainer]}>
+                    {renderPriceSection('pro_plus')}
+                  </View>
+
+                  <Divider style={styles.divider} />
+
+                  <View style={styles.featuresList}>
+                    <View style={[styles.featureItem, rtlContainer]}>
+                      <MaterialCommunityIcons name="check" size={18} color="#FF6B35" />
+                      <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
+                        {t('subscription.subscribe.proPlusFeature1')}
+                      </Text>
+                    </View>
+                    <View style={[styles.featureItem, rtlContainer]}>
+                      <MaterialCommunityIcons name="check" size={18} color="#FF6B35" />
+                      <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
+                        {t('subscription.subscribe.proPlusFeature2')}
+                      </Text>
+                    </View>
+                    <View style={[styles.featureItem, rtlContainer]}>
+                      <MaterialCommunityIcons name="check" size={18} color="#FF6B35" />
+                      <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
+                        {t('subscription.subscribe.proPlusFeature3')}
+                      </Text>
+                    </View>
+                    <View style={[styles.featureItem, rtlContainer]}>
+                      <MaterialCommunityIcons name="check" size={18} color="#FF6B35" />
+                      <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
+                        {t('subscription.subscribe.proPlusFeature4')}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {!isCurrentPlan('pro_plus') && selectedPlan === 'pro_plus' && (
+                    <LinearGradient
+                      colors={['#FF7A3D', '#FF5A24']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.upgradeButtonGradient}
+                    >
+                      <Button
+                        mode="contained"
+                        onPress={() => handlePurchase('pro_plus')}
+                        loading={iapProcessing || isPurchasing}
+                        disabled={iapProcessing || isPurchasing || restoring || isIAPRestoring}
+                        style={styles.upgradeButtonInGradient}
+                        labelStyle={styles.upgradeButtonLabel}
+                        buttonColor="transparent"
+                      >
+                        {t('subscription.subscribe.upgradeToProPlus')}
+                      </Button>
+                    </LinearGradient>
+                  )}
+                </Card.Content>
               </View>
-              <Divider style={styles.divider} />
+            </Card>
+          </View>
 
-              <View style={styles.featuresList}>
-                <View style={[styles.featureItem, rtlContainer]}>
-                  <MaterialCommunityIcons name="check" size={18} color="#FF6B35" />
-                  <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
-                    {t('subscription.subscribe.featureUnlimited')}
-                  </Text>
-                </View>
-                <View style={[styles.featureItem, rtlContainer]}>
-                  <MaterialCommunityIcons name="check" size={18} color="#FF6B35" />
-                  <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
-                    {t('subscription.subscribe.featureAll')}
-                  </Text>
-                </View>
-                <View style={[styles.featureItem, rtlContainer]}>
-                  <MaterialCommunityIcons name="check" size={18} color="#FF6B35" />
-                  <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
-                    {t('subscription.subscribe.featureBackup')}
-                  </Text>
-                </View>
-                <View style={[styles.featureItem, rtlContainer]}>
-                  <MaterialCommunityIcons name="check" size={18} color="#FF6B35" />
-                  <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
-                    {t('subscription.subscribe.featureAITables')}
-                  </Text>
-                </View>
-              </View>
-
-              {!isCurrentPlan('pro') ? (
-                <LinearGradient
-                  colors={['#FF7A3D', '#FF5A24']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.upgradeButtonGradient}
-                >
-                  <Button
-                    mode="contained"
-                    onPress={handlePurchasePro}
-                    loading={iapProcessing || isPurchasing}
-                    disabled={iapProcessing || isPurchasing || restoring || isIAPRestoring}
-                    style={[styles.upgradeButton, styles.proButton]}
-                    contentStyle={styles.upgradeButtonContent}
-                    labelStyle={styles.upgradeButtonLabel}
-                    buttonColor="transparent"
-                  >
-                    {t('subscription.subscribe.upgradeButtonText')}
-                  </Button>
-                </LinearGradient>
-              ) : (
-                <Button
-                  mode="contained"
-                  disabled
-                  style={[styles.upgradeButton, styles.proButton]}
-                  contentStyle={styles.upgradeButtonContent}
-                  labelStyle={styles.upgradeButtonLabel}
-                  buttonColor="#BDBDBD"
-                >
-                  {t('subscription.subscribe.active')}
-                </Button>
-              )}
-
-              {isCurrentPlan('pro') && (
-                <Text style={[styles.cancellationNote, rtlText]}>
-                  {t('subscription.subscribe.cancellationNote', { store: Platform.OS === 'ios' ? 'App Store' : 'Google Play' })}
-                </Text>
-              )}
-              </Card.Content>
-            </View>
-          </Card>
-        </View>
-
-        {/* Footer */}
-        <View style={styles.footer}>
-          <View style={[styles.disclaimerCard, rtlContainer]}>
-            <MaterialCommunityIcons name="shield-check" size={20} color="#757575" />
-            <Text variant="bodySmall" style={[styles.disclaimer, rtlText]}>
-              {t('subscription.subscribe.disclaimer', { store: Platform.OS === 'ios' ? 'Apple App Store' : 'Google Play' })}
+          {/* Fair Use Disclaimer */}
+          <View style={styles.fairUseContainer}>
+            <MaterialCommunityIcons name="information-outline" size={16} color="#757575" />
+            <Text variant="bodySmall" style={[styles.fairUseText, rtlText]}>
+              {t('subscription.subscribe.fairUseNote')}
             </Text>
           </View>
-          <Button
-            mode="text"
-            onPress={handleRestore}
-            loading={restoring || isIAPRestoring}
-            disabled={restoring || isIAPRestoring || iapProcessing || isPurchasing}
-            style={styles.restoreButton}
-          >
-            {t('subscription.subscribe.restore')}
-          </Button>
-        </View>
+
+          {/* Cancel Anytime Note */}
+          <Text variant="bodySmall" style={[styles.cancelNote, rtlText]}>
+            {t('subscription.subscribe.cancelAnytime')}
+          </Text>
+
+          {/* Footer */}
+          <View style={styles.footer}>
+            <View style={[styles.disclaimerCard, rtlContainer]}>
+              <MaterialCommunityIcons name="shield-check" size={20} color="#757575" />
+              <Text variant="bodySmall" style={[styles.disclaimer, rtlText]}>
+                {t('subscription.subscribe.disclaimer', { store: Platform.OS === 'ios' ? 'Apple App Store' : 'Google Play' })}
+              </Text>
+            </View>
+            <Button
+              mode="text"
+              onPress={handleRestore}
+              loading={restoring || isIAPRestoring}
+              disabled={restoring || isIAPRestoring || iapProcessing || isPurchasing}
+              style={styles.restoreButton}
+            >
+              {t('subscription.subscribe.restore')}
+            </Button>
+          </View>
         </ScrollView>
 
         <Snackbar
@@ -482,385 +563,266 @@ export default function SubscribeScreen() {
 
 function createStyles(isRTL: boolean) {
   return StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#F5F7FA',
-  },
-  container: {
-    flex: 1,
-  },
-  header: {
-    paddingTop: 0,
-    marginTop: 0,
-    elevation: 0,
-    backgroundColor: '#F5F7FA',
-  },
-  content: {
-    flex: 1,
-    backgroundColor: '#F5F7FA',
-  },
-  contentContainer: {
-    paddingBottom: 16,
-  },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerSection: {
-    paddingHorizontal: 24,
-    paddingTop: 0,
-    paddingBottom: 20,
-    alignItems: 'center',
-    backgroundColor: '#F5F7FA',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-  },
-  title: {
-    fontWeight: '700',
-    textAlign: 'center',
-    marginBottom: 20,
-    color: '#1A1A1A',
-    letterSpacing: 0.15,
-  },
-  subtitle: {
-    textAlign: 'center',
-    color: '#757575',
-    lineHeight: 22,
-  },
-  marketingSubtitle: {
-    textAlign: 'center',
-    color: '#424242',
-    fontWeight: '600',
-    marginTop: 8,
-    marginBottom: 2,
-    fontSize: 15,
-  },
-  cancelAnytime: {
-    textAlign: 'center',
-    color: '#757575',
-    fontSize: 13,
-    marginTop: 2,
-  },
-  comparisonSection: {
-    backgroundColor: 'rgba(245, 245, 245, 0.95)',
-    borderRadius: 18,
-    padding: 16,
-    marginHorizontal: 16,
-    marginBottom: 12,
-    marginTop: 12,
-  },
-  comparisonTitle: {
-    fontWeight: '600',
-    color: '#333333',
-    marginBottom: 10,
-    textAlign: isRTL ? 'right' : 'left',
-  },
-  comparisonList: {
-    gap: 8,
-  },
-  comparisonItem: {
-    flexDirection: isRTL ? 'row-reverse' : 'row',
-    alignItems: 'center',
-    gap: isRTL ? 6 : 10,
-  },
-  comparisonText: {
-    flex: 1,
-    color: '#616161',
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  plansContainer: {
-    paddingHorizontal: 16,
-    gap: 12,
-    marginTop: 0,
-  },
-  planCard: {
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    marginBottom: 0,
-    position: 'relative',
-    overflow: 'visible',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.08,
-        shadowRadius: 12,
-      },
-      android: {
-        elevation: 3,
-      },
-    }),
-  },
-  featuredCard: {
-    borderWidth: 2,
-    borderColor: '#FF6B35',
-    backgroundColor: '#FFFFFF',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.15,
-        shadowRadius: 16,
-      },
-      android: {
-        elevation: 8,
-      },
-    }),
-  },
-  proCard: {
-    borderWidth: 1,
-    borderColor: '#FFE0B2',
-  },
-  currentPlanCard: {
-    borderWidth: 2,
-    borderColor: '#4CAF50',
-    backgroundColor: '#F1F8F4',
-  },
-  cardContentWrapper: {
-    overflow: 'hidden',
-    borderRadius: 12,
-    position: 'relative',
-  },
-  cardContent: {
-    padding: 12,
-    paddingTop: 12,
-  },
-  badgeContainer: {
-    position: 'absolute',
-    top: 12,
-    ...(isRTL ? { left: 12 } : { right: 12 }),
-    zIndex: 1,
-  },
-  badge: {
-    flexDirection: isRTL ? 'row-reverse' : 'row',
-    alignItems: 'center',
-    backgroundColor: '#4CAF50',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 16,
-    gap: 4,
-  },
-  badgeText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  popularBadge: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#FF6B35',
-    paddingVertical: 6,
-    alignItems: 'center',
-    zIndex: 1,
-  },
-  popularBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  planIconContainer: {
-    alignItems: 'center',
-    marginBottom: 12,
-    marginTop: 0,
-  },
-  iconCircle: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    justifyContent: 'center',
-    alignItems: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.15,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 4,
-      },
-    }),
-  },
-  planTitle: {
-    fontWeight: '700',
-    textAlign: 'center',
-    marginBottom: 12,
-    color: '#1A1A1A',
-    fontSize: 20,
-  },
-  featuredTitle: {
-    color: '#42A5F5',
-  },
-  proTitle: {
-    color: '#FF7A3D',
-    fontWeight: '600',
-    fontSize: 21,
-    marginBottom: 8,
-  },
-  priceContainer: {
-    flexDirection: isRTL ? 'row-reverse' : 'row',
-    alignItems: 'baseline',
-    justifyContent: 'center',
-    marginBottom: 4,
-    marginTop: 8,
-    gap: 6,
-  },
-  priceAmount: {
-    fontWeight: '700',
-    color: '#1A1A1A',
-    fontSize: 36,
-    lineHeight: 42,
-  },
-  featuredPrice: {
-    color: '#42A5F5',
-  },
-  proPrice: {
-    color: '#FF6B35',
-  },
-  priceUnit: {
-    color: '#7A7A7A',
-    fontSize: 14,
-    fontWeight: '500',
-    lineHeight: 18,
-  },
-  priceLoadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 8,
-  },
-  priceLoadingText: {
-    color: '#757575',
-    fontSize: 14,
-  },
-  priceErrorContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 4,
-  },
-  priceErrorText: {
-    color: '#EF5350',
-    fontSize: 13,
-    textAlign: 'center',
-  },
-  retryButtonLabel: {
-    fontSize: 13,
-    color: '#FF6B35',
-  },
-  priceComparison: {
-    textAlign: 'center',
-    color: '#7A7A7A',
-    fontSize: 13,
-    marginTop: -9,
-    fontWeight: '400',
-    opacity: 0.68,
-    lineHeight: 21,
-  },
-  divider: {
-    marginVertical: 16,
-    backgroundColor: '#E0E0E0',
-  },
-  featuresList: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  featureItem: {
-    flexDirection: isRTL ? 'row-reverse' : 'row',
-    alignItems: 'center',
-    gap: isRTL ? 6 : 10,
-  },
-  featureText: {
-    flex: 1,
-    color: '#424242',
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  upgradeButtonGradient: {
-    borderRadius: 10,
-    marginTop: 16,
-    overflow: 'hidden',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.12,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 4,
-      },
-    }),
-  },
-  upgradeButton: {
-    borderRadius: 10,
-    marginTop: 0,
-  },
-  proButton: {
-    // Shadow handled by gradient wrapper
-  },
-  upgradeButtonContent: {
-    paddingVertical: 16,
-    minHeight: 56,
-  },
-  upgradeButtonLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    letterSpacing: 0.3,
-  },
-  crownGlow: {
-    ...Platform.select({
-      ios: {
-        shadowColor: '#FF6B35',
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.12,
-        shadowRadius: 12,
-      },
-      android: {
-        elevation: 3,
-      },
-    }),
-  },
-  cancellationNote: {
-    marginTop: 12,
-    color: '#616161',
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  footer: {
-    paddingHorizontal: 24,
-    paddingTop: 32,
-    paddingBottom: 16,
-  },
-  disclaimerCard: {
-    flexDirection: isRTL ? 'row-reverse' : 'row',
-    alignItems: 'flex-start',
-    backgroundColor: '#F5F5F5',
-    padding: 16,
-    borderRadius: 12,
-    gap: 12,
-  },
-  disclaimer: {
-    flex: 1,
-    color: '#616161',
-    lineHeight: 20,
-    fontSize: 13,
-  },
-  restoreButton: {
-    marginTop: 12,
-  },
-  dialog: {
-    backgroundColor: '#FFFFFF',
-  },
-  dialogText: {
-    color: '#424242',
-    lineHeight: 22,
-  },
+    safeArea: {
+      flex: 1,
+      backgroundColor: '#F5F7FA',
+    },
+    container: {
+      flex: 1,
+    },
+    header: {
+      paddingTop: 0,
+      marginTop: 0,
+      elevation: 0,
+      backgroundColor: '#F5F7FA',
+    },
+    content: {
+      flex: 1,
+      backgroundColor: '#F5F7FA',
+    },
+    contentContainer: {
+      paddingBottom: 24,
+    },
+    center: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    headerSection: {
+      paddingHorizontal: 24,
+      paddingTop: 0,
+      paddingBottom: 20,
+      alignItems: 'center',
+      backgroundColor: '#F5F7FA',
+    },
+    title: {
+      fontWeight: '700',
+      textAlign: 'center',
+      marginBottom: 8,
+      color: '#1A1A1A',
+    },
+    marketingSubtitle: {
+      textAlign: 'center',
+      color: '#424242',
+      fontWeight: '500',
+    },
+    plansContainer: {
+      paddingHorizontal: 16,
+      gap: 16,
+    },
+    planCard: {
+      borderRadius: 16,
+      backgroundColor: '#FFFFFF',
+      overflow: 'visible',
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.08,
+          shadowRadius: 8,
+        },
+        android: {
+          elevation: 3,
+        },
+      }),
+    },
+    featuredCard: {
+      borderWidth: 2,
+      borderColor: '#FF6B35',
+    },
+    selectedCard: {
+      borderWidth: 2,
+      borderColor: '#2196F3',
+    },
+    currentPlanCard: {
+      borderWidth: 2,
+      borderColor: '#4CAF50',
+      backgroundColor: '#F1F8F4',
+    },
+    cardContentWrapper: {
+      overflow: 'hidden',
+      borderRadius: 14,
+    },
+    cardContent: {
+      padding: 16,
+    },
+    currentBadge: {
+      position: 'absolute',
+      top: 12,
+      ...(isRTL ? { left: 12 } : { right: 12 }),
+      flexDirection: isRTL ? 'row-reverse' : 'row',
+      alignItems: 'center',
+      backgroundColor: '#4CAF50',
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 16,
+      gap: 4,
+      zIndex: 1,
+    },
+    currentBadgeText: {
+      color: '#FFFFFF',
+      fontSize: 11,
+      fontWeight: '600',
+    },
+    popularBadge: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      flexDirection: isRTL ? 'row-reverse' : 'row',
+      backgroundColor: '#FF6B35',
+      paddingVertical: 6,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      zIndex: 1,
+      borderTopLeftRadius: 14,
+      borderTopRightRadius: 14,
+    },
+    popularBadgeText: {
+      color: '#FFFFFF',
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    planHeader: {
+      flexDirection: isRTL ? 'row-reverse' : 'row',
+      alignItems: 'center',
+      gap: 12,
+      marginBottom: 16,
+    },
+    iconCircle: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    iconCircleGradient: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    planTitleContainer: {
+      flex: 1,
+    },
+    planTitle: {
+      fontWeight: '700',
+      fontSize: 20,
+    },
+    planSubtitle: {
+      color: '#757575',
+      marginTop: 2,
+    },
+    priceContainer: {
+      flexDirection: isRTL ? 'row-reverse' : 'row',
+      alignItems: 'baseline',
+      gap: 6,
+      marginBottom: 8,
+    },
+    priceAmount: {
+      fontWeight: '700',
+      fontSize: 32,
+    },
+    priceUnit: {
+      color: '#7A7A7A',
+      fontSize: 14,
+    },
+    priceLoadingContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 8,
+    },
+    priceLoadingText: {
+      color: '#757575',
+      fontSize: 14,
+    },
+    priceErrorContainer: {
+      paddingVertical: 8,
+    },
+    priceFallbackText: {
+      color: '#757575',
+      fontSize: 13,
+    },
+    divider: {
+      marginVertical: 16,
+      backgroundColor: '#E0E0E0',
+    },
+    featuresList: {
+      gap: 10,
+      marginBottom: 8,
+    },
+    featureItem: {
+      flexDirection: isRTL ? 'row-reverse' : 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    featureText: {
+      flex: 1,
+      color: '#424242',
+      fontSize: 14,
+      lineHeight: 20,
+    },
+    upgradeButtonGradient: {
+      borderRadius: 10,
+      marginTop: 16,
+      overflow: 'hidden',
+    },
+    upgradeButton: {
+      borderRadius: 10,
+      marginTop: 16,
+    },
+    upgradeButtonInGradient: {
+      borderRadius: 0,
+      margin: 0,
+    },
+    upgradeButtonLabel: {
+      fontSize: 14,
+      fontWeight: '600',
+    },
+    fairUseContainer: {
+      flexDirection: isRTL ? 'row-reverse' : 'row',
+      alignItems: 'flex-start',
+      gap: 8,
+      paddingHorizontal: 20,
+      paddingTop: 20,
+    },
+    fairUseText: {
+      flex: 1,
+      color: '#757575',
+      fontSize: 12,
+      lineHeight: 18,
+    },
+    cancelNote: {
+      textAlign: 'center',
+      color: '#757575',
+      fontSize: 12,
+      paddingHorizontal: 20,
+      paddingTop: 12,
+    },
+    footer: {
+      paddingHorizontal: 24,
+      paddingTop: 24,
+      paddingBottom: 16,
+    },
+    disclaimerCard: {
+      flexDirection: isRTL ? 'row-reverse' : 'row',
+      alignItems: 'flex-start',
+      backgroundColor: '#F5F5F5',
+      padding: 16,
+      borderRadius: 12,
+      gap: 12,
+    },
+    disclaimer: {
+      flex: 1,
+      color: '#616161',
+      lineHeight: 20,
+      fontSize: 13,
+    },
+    restoreButton: {
+      marginTop: 12,
+    },
   });
 }
-
