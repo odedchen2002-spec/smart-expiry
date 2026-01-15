@@ -252,7 +252,7 @@ export default function SubscribeScreen() {
   const renderPriceSection = (plan: PlanType) => {
     const priceString = plan === 'pro' ? proPriceString : proPlusPriceString;
     const fallbackPrice = plan === 'pro' ? SUBSCRIPTION_PLANS.pro.priceMonthly : SUBSCRIPTION_PLANS.pro_plus.priceMonthly;
-    const accentColor = plan === 'pro' ? '#0052CC' : '#D97706';
+    const accentColor = plan === 'pro' ? '#007AFF' : '#6d28d9';
 
     // Loading state
     if (isIAPLoading && !priceString) {
@@ -335,6 +335,7 @@ export default function SubscribeScreen() {
                 styles.planCard,
                 styles.proCard,
                 selectedPlan === 'pro' && styles.selectedCard,
+                selectedPlan === 'pro' && styles.selectedCardPro,
                 isCurrentPlan('pro') && styles.currentPlanCard,
               ]}
               onPress={() => !isCurrentPlan('pro') && setSelectedPlan('pro')}
@@ -352,7 +353,7 @@ export default function SubscribeScreen() {
               <View style={styles.cardContentWrapper}>
                 <Card.Content style={styles.cardContent}>
                   {isCurrentPlan('pro') && (
-                    <View style={[styles.currentBadge, { backgroundColor: '#0052CC' }]}>
+                    <View style={[styles.currentBadge, { backgroundColor: '#007AFF' }]}>
                       <MaterialCommunityIcons name="check-circle" size={14} color="#FFFFFF" />
                       <Text style={styles.currentBadgeText}>{t('subscription.subscribe.currentPlan')}</Text>
                     </View>
@@ -360,10 +361,10 @@ export default function SubscribeScreen() {
 
                   <View style={styles.planHeader}>
                     <View style={[styles.iconCircle, { backgroundColor: '#E6F0FF' }]}>
-                      <MaterialCommunityIcons name="store" size={28} color="#0052CC" />
+                      <MaterialCommunityIcons name="store" size={28} color="#007AFF" />
                     </View>
                     <View style={styles.planTitleContainer}>
-                      <Text variant="titleLarge" style={[styles.planTitle, { color: '#0052CC' }, rtlText]}>
+                      <Text variant="titleLarge" style={[styles.planTitle, { color: '#007AFF' }, rtlText]}>
                         Pro
                       </Text>
                       <Text variant="bodySmall" style={[styles.planSubtitle, rtlText]}>
@@ -380,25 +381,25 @@ export default function SubscribeScreen() {
 
                   <View style={styles.featuresList}>
                     <View style={[styles.featureItem, rtlContainer]}>
-                      <MaterialCommunityIcons name="check" size={18} color="#0052CC" />
+                      <MaterialCommunityIcons name="check" size={18} color="#007AFF" />
                       <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
-                        עד 20 תעודות משלוח בחודש
+                        עד 50 תעודות משלוח בחודש
                       </Text>
                     </View>
                     <View style={[styles.featureItem, rtlContainer]}>
-                      <MaterialCommunityIcons name="check" size={18} color="#0052CC" />
+                      <MaterialCommunityIcons name="check" size={18} color="#007AFF" />
                       <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
                         עד 2,000 מוצרים
                       </Text>
                     </View>
                     <View style={[styles.featureItem, rtlContainer]}>
-                      <MaterialCommunityIcons name="check" size={18} color="#0052CC" />
+                      <MaterialCommunityIcons name="check" size={18} color="#007AFF" />
                       <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
                         כל התכונות כלולות
                       </Text>
                     </View>
                     <View style={[styles.featureItem, rtlContainer]}>
-                      <MaterialCommunityIcons name="check" size={18} color="#0052CC" />
+                      <MaterialCommunityIcons name="check" size={18} color="#007AFF" />
                       <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
                         גיבויים אוטומטיים
                       </Text>
@@ -412,7 +413,7 @@ export default function SubscribeScreen() {
                       loading={iapProcessing || isPurchasing}
                       disabled={iapProcessing || isPurchasing || restoring || isIAPRestoring}
                       style={styles.upgradeButton}
-                      buttonColor="#0052CC"
+                      buttonColor="#007AFF"
                       labelStyle={styles.upgradeButtonLabel}
                     >
                       {isCurrentPlan('pro_plus') 
@@ -430,6 +431,7 @@ export default function SubscribeScreen() {
                 styles.planCard,
                 styles.proPlusCard,
                 selectedPlan === 'pro_plus' && styles.selectedCard,
+                selectedPlan === 'pro_plus' && styles.selectedCardProPlus,
                 isCurrentPlan('pro_plus') && styles.currentPlanCard,
               ]}
               onPress={() => !isCurrentPlan('pro_plus') && setSelectedPlan('pro_plus')}
@@ -445,7 +447,7 @@ export default function SubscribeScreen() {
               <View style={styles.cardContentWrapper}>
                 <Card.Content style={[styles.cardContent, !isCurrentPlan('pro_plus') && { paddingTop: 32 }]}>
                   {isCurrentPlan('pro_plus') && (
-                    <View style={[styles.currentBadge, { backgroundColor: '#D97706' }]}>
+                    <View style={[styles.currentBadge, { backgroundColor: '#6d28d9' }]}>
                       <MaterialCommunityIcons name="check-circle" size={14} color="#FFFFFF" />
                       <Text style={styles.currentBadgeText}>{t('subscription.subscribe.currentPlan')}</Text>
                     </View>
@@ -453,12 +455,12 @@ export default function SubscribeScreen() {
 
                   <View style={styles.planHeader}>
                     <Animated.View style={crownAnimatedStyle}>
-                      <View style={[styles.iconCircle, { backgroundColor: '#FEF3C7' }]}>
-                        <MaterialCommunityIcons name="crown" size={28} color="#D97706" />
+                      <View style={[styles.iconCircle, { backgroundColor: '#F3E8FF' }]}>
+                        <MaterialCommunityIcons name="crown" size={28} color="#6d28d9" />
                       </View>
                     </Animated.View>
                     <View style={styles.planTitleContainer}>
-                      <Text variant="titleLarge" style={[styles.planTitle, { color: '#D97706' }, rtlText]}>
+                      <Text variant="titleLarge" style={[styles.planTitle, { color: '#6d28d9' }, rtlText]}>
                         Pro+
                       </Text>
                       <Text variant="bodySmall" style={[styles.planSubtitle, rtlText]}>
@@ -475,25 +477,25 @@ export default function SubscribeScreen() {
 
                   <View style={styles.featuresList}>
                     <View style={[styles.featureItem, rtlContainer]}>
-                      <MaterialCommunityIcons name="check" size={18} color="#D97706" />
+                      <MaterialCommunityIcons name="check" size={18} color="#6d28d9" />
                       <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
-                        תעודות משלוח בנפח גבוה
+                        תעודות משלוח ללא הגבלה
                       </Text>
                     </View>
                     <View style={[styles.featureItem, rtlContainer]}>
-                      <MaterialCommunityIcons name="check" size={18} color="#D97706" />
+                      <MaterialCommunityIcons name="check" size={18} color="#6d28d9" />
                       <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
-                        מוצרים בנפח גבוה
+                        הוספת מוצרים ללא הגבלה
                       </Text>
                     </View>
                     <View style={[styles.featureItem, rtlContainer]}>
-                      <MaterialCommunityIcons name="check" size={18} color="#D97706" />
+                      <MaterialCommunityIcons name="check" size={18} color="#6d28d9" />
                       <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
                         מתאים למינימרקטים וסופרמרקטים
                       </Text>
                     </View>
                     <View style={[styles.featureItem, rtlContainer]}>
-                      <MaterialCommunityIcons name="check" size={18} color="#D97706" />
+                      <MaterialCommunityIcons name="check" size={18} color="#6d28d9" />
                       <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
                         כל התכונות כלולות
                       </Text>
@@ -506,8 +508,8 @@ export default function SubscribeScreen() {
                       onPress={() => handlePurchase('pro_plus')}
                       loading={iapProcessing || isPurchasing}
                       disabled={iapProcessing || isPurchasing || restoring || isIAPRestoring}
-                      style={[styles.upgradeButton, { backgroundColor: '#D97706' }]}
-                      buttonColor="#D97706"
+                      style={[styles.upgradeButton, { backgroundColor: '#6d28d9' }]}
+                      buttonColor="#6d28d9"
                       labelStyle={styles.upgradeButtonLabel}
                     >
                       קבל Pro+
@@ -675,7 +677,7 @@ function createStyles(isRTL: boolean) {
       borderWidth: 0,
       ...Platform.select({
         ios: {
-          shadowColor: '#0052CC',
+          shadowColor: '#007AFF',
           shadowOffset: { width: 0, height: 4 },
           shadowOpacity: 0.15,
           shadowRadius: 12,
@@ -691,7 +693,7 @@ function createStyles(isRTL: boolean) {
       left: 0,
       right: 0,
       height: 4,
-      backgroundColor: '#0052CC',
+      backgroundColor: '#007AFF',
       borderTopLeftRadius: 16,
       borderTopRightRadius: 16,
       zIndex: 1,
@@ -700,7 +702,7 @@ function createStyles(isRTL: boolean) {
       position: 'absolute',
       top: 12,
       ...(isRTL ? { left: 12 } : { right: 12 }),
-      backgroundColor: '#0052CC',
+      backgroundColor: '#007AFF',
       paddingHorizontal: 12,
       paddingVertical: 6,
       borderRadius: 12,
@@ -711,13 +713,13 @@ function createStyles(isRTL: boolean) {
       fontSize: 12,
       fontWeight: '700',
     },
-    // Pro+ Card (Gold)
+    // Pro+ Card (Purple)
     proPlusCard: {
       borderWidth: 2,
-      borderColor: '#D97706',
+      borderColor: '#6d28d9',
       ...Platform.select({
         ios: {
-          shadowColor: '#D97706',
+          shadowColor: '#6d28d9',
           shadowOffset: { width: 0, height: 4 },
           shadowOpacity: 0.2,
           shadowRadius: 12,
@@ -733,7 +735,7 @@ function createStyles(isRTL: boolean) {
       left: 0,
       right: 0,
       flexDirection: isRTL ? 'row-reverse' : 'row',
-      backgroundColor: '#D97706',
+      backgroundColor: '#6d28d9',
       paddingVertical: 8,
       alignItems: 'center',
       justifyContent: 'center',
@@ -766,7 +768,12 @@ function createStyles(isRTL: boolean) {
     },
     selectedCard: {
       borderWidth: 2,
-      borderColor: '#2196F3',
+    },
+    selectedCardPro: {
+      borderColor: '#007AFF',
+    },
+    selectedCardProPlus: {
+      borderColor: '#6d28d9',
     },
     currentPlanCard: {
       backgroundColor: '#F0F9FF',
