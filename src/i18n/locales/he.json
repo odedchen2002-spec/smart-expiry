@@ -718,7 +718,7 @@
     },
     "proIntakeLimitReached": {
       "title": "הגעת למגבלת קליטת סחורה",
-      "message": "תוכנית Pro מאפשרת עד 20 דפי קליטת סחורה בחודש. שדרג ל-Pro+ לנפח גבוה יותר.",
+      "message": "תוכנית Pro מאפשרת עד 50 דפי קליטת סחורה בחודש. שדרג ל-Pro+ לנפח גבוה יותר.",
       "upgrade": "שדרג ל-Pro+"
     },
     "trial7DayReminder": {
@@ -768,7 +768,7 @@
       "proPlusFeature2": "מוצרים בנפח גבוה",
       "proPlusFeature3": "מתאים למינימרקטים וסופרים",
       "proPlusFeature4": "כל הפיצ'רים",
-      "upgradeToPro": "שדרג ל-Pro",
+      "upgradeToPro": "Pro+ שדרג ל- ",
       "upgradeToProPlus": "שדרג ל-Pro+",
       "switchToPro": "החלף ל-Pro",
       "fairUseNote": "השימוש מותאם לגודל העסק ונפח העבודה. שימוש חריג במיוחד עשוי לדרוש תכנית מתאימה יותר.",

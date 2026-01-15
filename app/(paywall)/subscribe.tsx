@@ -417,8 +417,8 @@ export default function SubscribeScreen() {
                       labelStyle={styles.upgradeButtonLabel}
                     >
                       {isCurrentPlan('pro_plus') 
-                        ? 'עבור ל-Pro'
-                        : 'שדרג ל-Pro'}
+                        ? 'עבור למנוי Pro'
+                        : 'שדרג למנוי Pro'}
                     </Button>
                   )}
                 </Card.Content>
@@ -512,7 +512,7 @@ export default function SubscribeScreen() {
                       buttonColor="#6d28d9"
                       labelStyle={styles.upgradeButtonLabel}
                     >
-                      קבל Pro+
+                      קבל מנוי Pro+
                     </Button>
                   )}
                 </Card.Content>
