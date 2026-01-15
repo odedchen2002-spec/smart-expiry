@@ -128,16 +128,16 @@ export function TrialEndedDialog() {
 
           {/* Title */}
           <Text variant="headlineSmall" style={[styles.title, rtlTextCenter]}>
-            {t('subscription.trialEnded.title') || 'Free trial ended'}
+            {t('subscription.trialEnded.title') || 'חודש המתנה ה-PRO הסתיים'}
           </Text>
 
           {/* Message */}
           <View style={styles.messageContainer}>
             <Text style={[styles.message, rtlText]}>
-              {t('subscription.trialEnded.body1') || 'The account has moved to the Free plan.'}
+              {t('subscription.trialEnded.body1') || 'החשבון שלך עבר כעת לתוכנית החינמית.'}
             </Text>
             <Text style={[styles.message, styles.messageSpacing, rtlText]}>
-              {t('subscription.trialEnded.body2') || 'You can continue using the app with the following limits:'}
+              {t('subscription.trialEnded.body2') || 'תוכל להמשיך להשתמש באפליקציה עם המגבלות הבאות:'}
             </Text>
             
             {/* Limits List */}
@@ -145,22 +145,19 @@ export function TrialEndedDialog() {
               <View style={styles.limitItem}>
                 <MaterialCommunityIcons name="check-circle" size={20} color={THEME_COLORS.primary} style={styles.limitIcon} />
                 <Text style={[styles.limitText, rtlText]}>
-                  {t('subscription.trialEnded.limit1') || 'Up to 150 active products'}
+                  {t('subscription.trialEnded.limit1') || 'עד 150 מוצרים פעילים'}
                 </Text>
               </View>
               <View style={styles.limitItem}>
                 <MaterialCommunityIcons name="check-circle" size={20} color={THEME_COLORS.primary} style={styles.limitIcon} />
                 <Text style={[styles.limitText, rtlText]}>
-                  {t('subscription.trialEnded.limit2') || 'Up to 5 AI uses'}
+                  {t('subscription.trialEnded.limit2') || 'עד 5 שימושים ב-AI'}
                 </Text>
               </View>
             </View>
 
             <Text style={[styles.message, styles.messageSpacing, rtlText]}>
-              {t('subscription.trialEnded.clarification') || 'Products beyond the first 150 are view-only and will not be locked or deleted.'}
-            </Text>
-            <Text style={[styles.message, styles.messageSpacing, rtlText]}>
-              {t('subscription.trialEnded.finalSentence') || 'You can upgrade at any time to continue managing all products with no limits.'}
+              {t('subscription.trialEnded.clarification') || 'המוצרים הראשונים שתוסיף יישארו פתוחים לעריכה ולקבלת התראות.'}
             </Text>
           </View>
         </Dialog.Content>

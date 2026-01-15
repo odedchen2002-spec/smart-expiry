@@ -141,19 +141,20 @@ export function WelcomeExplanationDialog() {
 
           {/* Title */}
           <Text variant="headlineSmall" style={[styles.title, rtlTextCenter]}>
-            {t('onboarding.welcome.title') || 'ברוך הבא'}
+            {t('onboarding.welcome.title') || 'ברוך הבא ל-Smart Expiry!'}
           </Text>
 
           {/* Message */}
           <View style={styles.messageContainer}>
             <Text style={[styles.message, styles.messageFirst, rtlText]}>
-              {t('onboarding.welcome.body1') || 'אנחנו שמחים שהצטרפת אלינו! בתקופת הניסיון החינמית שלך (30 ימים) תוכל להוסיף ולנהל כמות בלתי מוגבלת של מוצרים ללא הגבלות.'}
+              {t('onboarding.welcome.body1_start') || 'אנו רוצים שתכיר את האפליקציה בחוויה ללא פשרות ולכן אנו מעניקים לך '}
+              <Text style={[styles.message, styles.highlightedText]}>
+                {t('onboarding.welcome.body1_highlight') || 'חודש מתנה במנוי ה-PRO שלנו'}
+              </Text>
+              {t('onboarding.welcome.body1_end') || '!'}
             </Text>
             <Text style={[styles.message, styles.messageSpacing, rtlText]}>
-              {t('onboarding.welcome.body2') || 'לאחר סיום תקופת הניסיון, תוכל להמשיך להשתמש בתוכנית החינמית ולנהל עד 150 מוצרים פעילים. המוצרים הראשונים שהוספת יישארו פתוחים לעריכה.'}
-            </Text>
-            <Text style={[styles.message, styles.messageSpacing, rtlText]}>
-              {t('onboarding.welcome.body3') || 'כדי לפתוח את כל המוצרים ולקבל גישה מלאה לכל התכונות, תוכל לשדרג בכל עת לתוכנית Pro.'}
+              {t('onboarding.welcome.body2') || 'לאחר החודש מתנה, תוכל להמשיך להשתמש באפליקציה בתוכנית החינמית שלנו ולנהל עד 150 מוצרים פעילים. המוצרים הראשונים שתוסיף יישארו פתוחים לעריכה ולקבלת התראות.'}
             </Text>
           </View>
         </Dialog.Content>
@@ -254,6 +255,10 @@ function createStyles(isRTL: boolean) {
       lineHeight: 24,
       color: '#4B5563',
       textAlign: 'center',
+    },
+    highlightedText: {
+      color: THEME_COLORS.primary,
+      fontWeight: '700',
     },
     messageFirst: {
       marginTop: 4,

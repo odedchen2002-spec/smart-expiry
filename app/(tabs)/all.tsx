@@ -1,7 +1,7 @@
 import { CategoryCardList } from '@/components/items/CategoryCardList';
 import { SkeletonItemList } from '@/components/items/SkeletonItemCard';
 import { SearchBar } from '@/components/search/SearchBar';
-import { Trial5DayReminderDialog } from '@/components/subscription/Trial5DayReminderDialog';
+import { Trial7DayReminderDialog } from '@/components/subscription/Trial5DayReminderDialog';
 import { TrialEndedDialog } from '@/components/subscription/TrialEndedDialog';
 import { TrialReminderDialog } from '@/components/subscription/TrialReminderDialog';
 import { UpgradeBanner } from '@/components/subscription/UpgradeBanner';
@@ -689,7 +689,7 @@ export default function AllScreen() {
         />
         )}
       </View>
-      <Trial5DayReminderDialog />
+      <Trial7DayReminderDialog />
       <TrialReminderDialog />
       <TrialEndedDialog />
 

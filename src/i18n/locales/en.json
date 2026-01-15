@@ -411,13 +411,13 @@
     "account": "Account",
     "title": "Settings",
     "subscriptionDescription": {
-      "trial": "Free trial - %{days} days remaining",
+      "trial": "PRO gift month - %{days} days remaining",
       "proPlus": "Premium plan for high-volume businesses",
       "pro": "Pro plan for small businesses",
       "free": "Free plan with basic features"
     },
     "subscriptionLabel": {
-      "trial": "Free Trial",
+      "trial": "PRO Gift Month",
       "proPlus": "Pro+",
       "pro": "Pro",
       "free": "Free"
@@ -427,7 +427,7 @@
       "manage": "Manage subscription"
     },
     "subscriptionDate": {
-      "trialEnds": "Free trial ends: %{date}",
+      "trialEnds": "Gift month ends: %{date}",
       "validUntil": "Valid until: %{date}"
     },
     "formatDate": {
@@ -652,7 +652,7 @@
     "usage": "Usage",
     "activeItems": "Active Items",
     "planDetails": "Plan Details",
-    "trialDuration": "Trial Duration",
+    "trialDuration": "Gift Month Duration",
     "days": "days",
     "maxItems": "Max Items",
     "price": "Price",
@@ -662,7 +662,7 @@
     "monthlyPrice": "Monthly Price",
     "renewsOn": "Renews On",
     "pricePerMonth": "₪ per month",
-    "trial": "Free Trial",
+    "trial": "PRO Gift Month",
     "daysRemaining": "days remaining",
     "endsOn": "Ends on",
     "validUntil": "Subscription Valid Until",
@@ -709,18 +709,17 @@
       "message": "Pro plan allows up to 20 shipment intake pages per month. Upgrade to Pro+ for higher volume.",
       "upgrade": "Upgrade to Pro+"
     },
-    "trial5DayReminder": {
-      "title": "5 days left of full access",
-      "message": "Your free trial ends in 5 days. After that, you can continue using the free plan to manage up to 150 active products. The first products you add will remain unlocked for editing."
+    "trial7DayReminder": {
+      "title": "Your gift month is ending soon",
+      "message": "Your gift month of PRO subscription ends in 7 days. After that, you can continue using our free plan to manage up to 150 active products. The first products you add will remain unlocked for editing and notifications."
     },
     "trialEnded": {
-      "title": "Free trial ended",
-      "body1": "The account has moved to the Free plan.",
+      "title": "Your PRO gift month has ended",
+      "body1": "Your account has now moved to the Free plan.",
       "body2": "You can continue using the app with the following limits:",
       "limit1": "Up to 150 active products",
       "limit2": "Up to 5 AI uses",
-      "clarification": "Products beyond the first 150 are view-only and will not be locked or deleted.",
-      "finalSentence": "You can upgrade at any time to continue managing all products with no limits.",
+      "clarification": "The first products you add will remain unlocked for editing and notifications.",
       "primaryCta": "Upgrade to Pro",
       "secondaryCta": "Continue with Free plan"
     },
@@ -1263,10 +1262,11 @@
   },
   "onboarding": {
     "welcome": {
-      "title": "Welcome",
-      "body1": "We're excited to have you on board! During your free trial period (30 days), you can add and manage products with full access to all features.",
-      "body2": "After your trial ends, you can continue using the free plan to manage up to 150 active products. The first products you add will remain unlocked for editing.",
-      "body3": "To unlock all products and enjoy full access to all features, you can upgrade to the Pro plan at any time.",
+      "title": "Welcome to Smart Expiry!",
+      "body1_start": "We want you to experience the app with no compromises, so we're giving you ",
+      "body1_highlight": "a free month of our PRO subscription",
+      "body1_end": "!",
+      "body2": "After your gift month, you can continue using our free plan to manage up to 150 active products. The first products you add will remain unlocked for editing and notifications.",
       "button": "Got it, let's get started"
     },
     "slide1": {

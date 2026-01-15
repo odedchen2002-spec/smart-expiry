@@ -15,7 +15,7 @@ import { useNotificationBadge } from '@/lib/hooks/useNotificationBadge';
 import { CategoryCardList } from '@/components/items/CategoryCardList';
 import { UpgradeBanner } from '@/components/subscription/UpgradeBanner';
 import { TrialReminderDialog } from '@/components/subscription/TrialReminderDialog';
-import { Trial5DayReminderDialog } from '@/components/subscription/Trial5DayReminderDialog';
+import { Trial7DayReminderDialog } from '@/components/subscription/Trial5DayReminderDialog';
 import { TrialEndedDialog } from '@/components/subscription/TrialEndedDialog';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SkeletonItemList } from '@/components/items/SkeletonItemCard';
@@ -262,7 +262,7 @@ export default function ExpiredScreen() {
           />
         )}
       </View>
-      <Trial5DayReminderDialog />
+      <Trial7DayReminderDialog />
       <TrialReminderDialog />
       <TrialEndedDialog />
       

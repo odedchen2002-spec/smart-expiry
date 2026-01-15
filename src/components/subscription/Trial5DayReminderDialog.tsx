@@ -1,6 +1,6 @@
 /**
- * Trial 5-day reminder dialog
- * Shows 5 days before trial ends with message "5 days left of full access"
+ * Trial 7-day reminder dialog
+ * Shows 7 days before trial ends with message about gift month ending soon
  */
 
 import React, { useState, useEffect } from 'react';
@@ -15,10 +15,10 @@ import { getRtlTextStyles, getRtlContainerStyles } from '@/lib/utils/rtlStyles';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
-const TRIAL_5DAY_REMINDER_KEY = (ownerId: string) => `trial_5day_reminder_shown_${ownerId}`;
-const TRIAL_5DAY_REMINDER_DAYS = 5;
+const TRIAL_7DAY_REMINDER_KEY = (ownerId: string) => `trial_7day_reminder_shown_${ownerId}`;
+const TRIAL_7DAY_REMINDER_DAYS = 7;
 
-export function Trial5DayReminderDialog() {
+export function Trial7DayReminderDialog() {
   const router = useRouter();
   const { t, isRTL } = useLanguage();
   const { subscription, isPro } = useSubscription();
@@ -38,10 +38,10 @@ export function Trial5DayReminderDialog() {
 
       const trialDays = subscription.trialDaysRemaining;
       
-      // Show reminder if 5 days or less remaining (but more than 0)
-      if (trialDays !== undefined && trialDays <= TRIAL_5DAY_REMINDER_DAYS && trialDays > 0) {
+      // Show reminder if 7 days or less remaining (but more than 0)
+      if (trialDays !== undefined && trialDays <= TRIAL_7DAY_REMINDER_DAYS && trialDays > 0) {
         // Check if we've already shown this reminder
-        const reminderKey = TRIAL_5DAY_REMINDER_KEY(activeOwnerId);
+        const reminderKey = TRIAL_7DAY_REMINDER_KEY(activeOwnerId);
         const hasShown = await AsyncStorage.getItem(reminderKey);
         
         if (!hasShown) {
@@ -95,13 +95,13 @@ export function Trial5DayReminderDialog() {
 
           {/* Title */}
           <Text variant="headlineSmall" style={[styles.title, rtlTextCenter]}>
-            {t('subscription.trial5DayReminder.title') || '5 days left of full access'}
+            {t('subscription.trial7DayReminder.title') || 'חודש המתנה שלך מסתיים בקרוב'}
           </Text>
 
           {/* Message */}
           <View style={styles.messageContainer}>
             <Text style={[styles.message, rtlText]}>
-              {t('subscription.trial5DayReminder.message') || 'Your free trial ends in 5 days. After that, you can continue using the free plan to manage up to 150 active products. The first products you add will remain unlocked for editing.'}
+              {t('subscription.trial7DayReminder.message') || 'חודש המתנה במנוי ה-PRO שלך מסתיים בעוד 7 ימים. לאחר מכן, תוכל להמשיך להשתמש בתוכנית החינמית שלנו ולנהל עד 150 מוצרים פעילים. המוצרים הראשונים שתוסיף יישארו פתוחים לעריכה ולקבלת התראות.'}
             </Text>
           </View>
         </Dialog.Content>
