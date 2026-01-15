@@ -559,12 +559,22 @@ async function checkProfileExists(userId: string): Promise<boolean> {
  */
 export async function signIn({ email, password }: SignInData) {
   try {
+    console.log('[Auth] signIn called for email:', email);
+    console.log('[Auth] Supabase client URL:', supabase['supabaseUrl']?.substring(0, 40) + '...');
+    
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
-    if (error) throw error;
+    if (error) {
+      console.error('[Auth] signInWithPassword failed:', {
+        message: error.message,
+        status: error.status,
+        name: error.name,
+      });
+      throw error;
+    }
 
     const user = data.user;
 

@@ -10,7 +10,19 @@ import type { Database } from '../../types/database';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+// Production diagnostic logging
+console.log('[Supabase Client] Initializing with:', {
+  URL: SUPABASE_URL ? `${SUPABASE_URL.substring(0, 40)}...` : 'UNDEFINED',
+  KEY: SUPABASE_ANON_KEY ? `${SUPABASE_ANON_KEY.substring(0, 20)}...` : 'UNDEFINED',
+  URL_isHttps: SUPABASE_URL?.startsWith('https://'),
+  URL_length: SUPABASE_URL?.length || 0,
+  KEY_length: SUPABASE_ANON_KEY?.length || 0,
+});
+
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  console.error('[Supabase Client] ❌ CRITICAL: Missing configuration!');
+  console.error('[Supabase Client] SUPABASE_URL:', SUPABASE_URL);
+  console.error('[Supabase Client] SUPABASE_ANON_KEY present:', !!SUPABASE_ANON_KEY);
   throw new Error('Missing Supabase configuration. Please set environment variables.');
 }
 

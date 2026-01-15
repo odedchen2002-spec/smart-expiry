@@ -23,13 +23,16 @@ export interface CollaborationWithOwner {
 
 /**
  * Fetch collaborations for an owner and hydrate member profile details.
+ * 
+ * FIXED: Added limit to handle potential large datasets
  */
 export async function getCollaborationsByOwner(ownerId: string): Promise<CollaborationWithMember[]> {
   const { data, error } = await supabase
     .from('collaborations')
     .select('*')
     .eq('owner_id', ownerId)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .range(0, 999); // Limit to 1000 collaborations (reasonable for most businesses)
 
   if (error) {
     console.error('Error fetching collaborations:', error);
@@ -65,6 +68,8 @@ export async function getCollaborationsByOwner(ownerId: string): Promise<Collabo
 
 /**
  * Fetch pending invitations for the current user (member side).
+ * 
+ * FIXED: Added limit to handle potential large datasets
  */
 export async function getPendingInvitations(memberId: string): Promise<CollaborationWithOwner[]> {
   const { data, error } = await supabase
@@ -72,7 +77,8 @@ export async function getPendingInvitations(memberId: string): Promise<Collabora
     .select('*')
     .eq('member_id', memberId)
     .eq('status', 'pending')
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .range(0, 999); // Limit to 1000 invitations (more than enough)
 
   if (error) {
     console.error('Error fetching pending invitations:', error);
@@ -124,6 +130,8 @@ function isNetworkError(error: any): boolean {
 
 /**
  * Fetch active collaborations for the current user (member side).
+ * 
+ * FIXED: Added limit to handle potential large datasets
  */
 export async function getActiveCollaborations(memberId: string): Promise<CollaborationWithOwner[]> {
   const { data, error } = await supabase
@@ -131,7 +139,8 @@ export async function getActiveCollaborations(memberId: string): Promise<Collabo
     .select('*')
     .eq('member_id', memberId)
     .eq('status', 'active')
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .range(0, 999); // Limit to 1000 collaborations (reasonable limit)
 
   if (error) {
     // Network errors - log as warning and return empty (graceful degradation)

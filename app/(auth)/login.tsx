@@ -223,9 +223,40 @@ export default function LoginScreen() {
     setLoading(true);
     setError(null);
 
+    console.log('[Login Screen] Attempting login...');
     const { error: signInError, user } = await signIn({ email, password });
 
     if (signInError) {
+      console.error('[Login Screen] Sign in failed:', {
+        message: signInError.message,
+        status: (signInError as any).status,
+        name: signInError.name,
+      });
+
+      // Enhanced error message for network failures
+      if (signInError.message?.includes('Network request failed') || 
+          signInError.message?.includes('Failed to fetch')) {
+        // Import config to show diagnostics
+        const { SUPABASE_URL, SUPABASE_ANON_KEY } = require('@/lib/constants/config');
+        
+        const detailedError = `${signInError.message}\n\n` +
+          `🔍 DIAGNOSTICS:\n` +
+          `URL: ${SUPABASE_URL ? SUPABASE_URL.substring(0, 40) + '...' : '❌ MISSING'}\n` +
+          `KEY: ${SUPABASE_ANON_KEY ? SUPABASE_ANON_KEY.substring(0, 20) + '...' : '❌ MISSING'}\n` +
+          `ENV: ${process.env.EXPO_PUBLIC_ENV || 'undefined'}\n` +
+          `__DEV__: ${__DEV__}\n\n` +
+          `Common causes:\n` +
+          `1. Missing environment variables\n` +
+          `2. No internet connection\n` +
+          `3. Supabase project paused`;
+        
+        setError(detailedError);
+        setShowError(true);
+        setLoading(false);
+        setShowForgot(false);
+        return;
+      }
+
       if (signInError.message === 'ACCOUNT_DELETED') {
         Alert.alert(
           t('common.error') || 'שגיאה',

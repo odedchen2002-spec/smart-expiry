@@ -386,12 +386,12 @@ function createStyles(isRTL: boolean) {
     elevation: 2,
   },
   title: {
-    marginTop: 16,
-    marginBottom: 32,
+    marginTop: 12,
+    marginBottom: 20,
     textAlign: 'center',
   },
   input: {
-    marginBottom: 12,
+    marginBottom: 10,
     borderRadius: 12,
   },
   button: {
@@ -400,11 +400,11 @@ function createStyles(isRTL: boolean) {
     borderRadius: 16,
   },
   linkButton: {
-    marginTop: 16,
+    marginTop: 12,
   },
   termsContainer: {
-    marginTop: 8,
-    marginBottom: 16,
+    marginTop: 6,
+    marginBottom: 12,
   },
   checkboxRow: {
     flexDirection: 'row',

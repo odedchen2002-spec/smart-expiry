@@ -49,6 +49,8 @@ export type TimeRange = 'month' | 'year' | 'all';
 /**
  * Get statistics summary (handled vs thrown) for a store
  * 
+ * FIXED: Uses chunking to bypass Supabase 1000-row limit
+ * 
  * @param storeId - The store ID to get statistics for
  * @param timeRange - Time range to filter: 'month' (this month), 'year' (this year), 'all' (all time)
  * @returns Statistics summary
@@ -62,29 +64,52 @@ export async function getStatisticsSummary(
   }
 
   try {
-    let query = supabase
-      .from('expiry_events')
-      .select('event_type')
-      .eq('store_id', storeId)
-      .in('event_type', ['SOLD_FINISHED', 'THROWN']);
+    // Fetch all events in chunks to bypass 1000-row limit
+    const CHUNK_SIZE = 1000;
+    const MAX_EVENTS = 50000;
+    let allEvents: any[] = [];
+    let offset = 0;
+    let hasMore = true;
 
-    if (timeRange === 'month') {
-      query = query.gte('created_at', getMonthStartDate());
-    } else if (timeRange === 'year') {
-      query = query.gte('created_at', getYearStartDate());
+    while (hasMore && offset < MAX_EVENTS) {
+      let query = supabase
+        .from('expiry_events')
+        .select('event_type')
+        .eq('store_id', storeId)
+        .in('event_type', ['SOLD_FINISHED', 'THROWN'])
+        .order('created_at', { ascending: false })
+        .range(offset, offset + CHUNK_SIZE - 1);
+
+      if (timeRange === 'month') {
+        query = query.gte('created_at', getMonthStartDate());
+      } else if (timeRange === 'year') {
+        query = query.gte('created_at', getYearStartDate());
+      }
+
+      const { data: chunk, error: chunkError } = await query;
+
+      if (chunkError) {
+        console.error('[statisticsService] Error fetching summary chunk:', chunkError);
+        throw chunkError;
+      }
+
+      if (!chunk || chunk.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      allEvents = allEvents.concat(chunk);
+
+      // If we got less than CHUNK_SIZE, we've reached the end
+      if (chunk.length < CHUNK_SIZE) {
+        hasMore = false;
+      } else {
+        offset += CHUNK_SIZE;
+      }
     }
-    // If timeRange === 'all', no date filter is applied
 
-    const { data, error } = await query;
-
-    if (error) {
-      console.error('[statisticsService] Error fetching summary:', error);
-      return { handledCount: 0, thrownCount: 0, totalCount: 0 };
-    }
-
-    const events = data || [];
-    const handledCount = events.filter((e) => e.event_type === 'SOLD_FINISHED').length;
-    const thrownCount = events.filter((e) => e.event_type === 'THROWN').length;
+    const handledCount = allEvents.filter((e) => e.event_type === 'SOLD_FINISHED').length;
+    const thrownCount = allEvents.filter((e) => e.event_type === 'THROWN').length;
 
     return {
       handledCount,
@@ -101,6 +126,8 @@ export async function getStatisticsSummary(
  * Get top thrown products (by frequency, not by count)
  * Returns products ranked by how many times they were thrown
  * 
+ * FIXED: Uses chunking to bypass Supabase 1000-row limit
+ * 
  * @param storeId - The store ID to get statistics for
  * @param timeRange - Time range to filter: 'month' (this month), 'year' (this year), 'all' (all time)
  * @param limit - Maximum number of products to return (default 10)
@@ -116,33 +143,58 @@ export async function getTopThrownProducts(
   }
 
   try {
-    let query = supabase
-      .from('expiry_events')
-      .select('product_name')
-      .eq('store_id', storeId)
-      .eq('event_type', 'THROWN')
-      .not('product_name', 'is', null);
+    // Fetch all THROWN events in chunks to bypass 1000-row limit
+    const CHUNK_SIZE = 1000;
+    const MAX_EVENTS = 50000;
+    let allEvents: any[] = [];
+    let offset = 0;
+    let hasMore = true;
 
-    if (timeRange === 'month') {
-      query = query.gte('created_at', getMonthStartDate());
-    } else if (timeRange === 'year') {
-      query = query.gte('created_at', getYearStartDate());
+    while (hasMore && offset < MAX_EVENTS) {
+      let query = supabase
+        .from('expiry_events')
+        .select('product_name')
+        .eq('store_id', storeId)
+        .eq('event_type', 'THROWN')
+        .not('product_name', 'is', null)
+        .order('created_at', { ascending: false })
+        .range(offset, offset + CHUNK_SIZE - 1);
+
+      if (timeRange === 'month') {
+        query = query.gte('created_at', getMonthStartDate());
+      } else if (timeRange === 'year') {
+        query = query.gte('created_at', getYearStartDate());
+      }
+
+      const { data: chunk, error: chunkError } = await query;
+
+      if (chunkError) {
+        console.error('[statisticsService] Error fetching top thrown products chunk:', chunkError);
+        throw chunkError;
+      }
+
+      if (!chunk || chunk.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      allEvents = allEvents.concat(chunk);
+
+      // If we got less than CHUNK_SIZE, we've reached the end
+      if (chunk.length < CHUNK_SIZE) {
+        hasMore = false;
+      } else {
+        offset += CHUNK_SIZE;
+      }
     }
 
-    const { data, error } = await query;
-
-    if (error) {
-      console.error('[statisticsService] Error fetching top thrown products:', error);
-      return [];
-    }
-
-    if (!data || data.length === 0) {
+    if (allEvents.length === 0) {
       return [];
     }
 
     // Count occurrences of each product name
     const productCounts: Record<string, number> = {};
-    data.forEach((event) => {
+    allEvents.forEach((event) => {
       const name = event.product_name || '';
       if (name) {
         productCounts[name] = (productCounts[name] || 0) + 1;
@@ -169,6 +221,8 @@ export async function getTopThrownProducts(
  * Get all thrown products for a store
  * Returns all thrown product events with product name and date
  * 
+ * FIXED: Uses chunking to bypass Supabase 1000-row limit
+ * 
  * @param storeId - The store ID to get events for
  * @param timeRange - Time range to filter: 'month' (this month), 'year' (this year), 'all' (all time)
  * @returns Array of thrown product events
@@ -182,32 +236,56 @@ export async function getThrownProductsList(
   }
 
   try {
-    let query = supabase
-      .from('expiry_events')
-      .select('product_name, created_at')
-      .eq('store_id', storeId)
-      .eq('event_type', 'THROWN')
-      .not('product_name', 'is', null)
-      .order('created_at', { ascending: false });
+    // Fetch all THROWN events in chunks to bypass 1000-row limit
+    const CHUNK_SIZE = 1000;
+    const MAX_EVENTS = 50000;
+    let allEvents: any[] = [];
+    let offset = 0;
+    let hasMore = true;
 
-    if (timeRange === 'month') {
-      query = query.gte('created_at', getMonthStartDate());
-    } else if (timeRange === 'year') {
-      query = query.gte('created_at', getYearStartDate());
+    while (hasMore && offset < MAX_EVENTS) {
+      let query = supabase
+        .from('expiry_events')
+        .select('product_name, created_at')
+        .eq('store_id', storeId)
+        .eq('event_type', 'THROWN')
+        .not('product_name', 'is', null)
+        .order('created_at', { ascending: false })
+        .range(offset, offset + CHUNK_SIZE - 1);
+
+      if (timeRange === 'month') {
+        query = query.gte('created_at', getMonthStartDate());
+      } else if (timeRange === 'year') {
+        query = query.gte('created_at', getYearStartDate());
+      }
+
+      const { data: chunk, error: chunkError } = await query;
+
+      if (chunkError) {
+        console.error('[statisticsService] Error fetching thrown products list chunk:', chunkError);
+        throw chunkError;
+      }
+
+      if (!chunk || chunk.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      allEvents = allEvents.concat(chunk);
+
+      // If we got less than CHUNK_SIZE, we've reached the end
+      if (chunk.length < CHUNK_SIZE) {
+        hasMore = false;
+      } else {
+        offset += CHUNK_SIZE;
+      }
     }
 
-    const { data, error } = await query;
-
-    if (error) {
-      console.error('[statisticsService] Error fetching thrown products list:', error);
+    if (allEvents.length === 0) {
       return [];
     }
 
-    if (!data || data.length === 0) {
-      return [];
-    }
-
-    return data.map((event) => ({
+    return allEvents.map((event) => ({
       productName: event.product_name || '',
       thrownAt: event.created_at,
     }));

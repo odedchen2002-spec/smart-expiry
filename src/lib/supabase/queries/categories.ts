@@ -10,13 +10,16 @@ const DEFAULT_CATEGORY = 'ללא קטגוריה'; // Default category name
 /**
  * Get all unique categories for an owner
  * Includes categories from placeholder products (used to create empty categories)
+ * 
+ * FIXED: Uses range to bypass Supabase 1000-row limit
  */
 export async function getCategories(ownerId: string): Promise<string[]> {
   const { data, error } = await supabase
     .from('products')
     .select('category')
     .eq('owner_id', ownerId)
-    .not('category', 'is', null);
+    .not('category', 'is', null)
+    .range(0, 9999); // Support up to 10,000 products per owner
 
   if (error) {
     console.error('Error fetching categories:', error);
@@ -102,6 +105,8 @@ export async function deleteCategory(
  * Get products by category
  * Excludes placeholder products used to create categories
  * Only returns products that have at least one active item
+ * 
+ * FIXED: Uses range to bypass Supabase 1000-row limit
  */
 export async function getProductsByCategory(
   ownerId: string,
@@ -112,7 +117,8 @@ export async function getProductsByCategory(
     .from('products')
     .select('*')
     .eq('owner_id', ownerId)
-    .not('name', 'like', '__CATEGORY_PLACEHOLDER_%'); // Exclude placeholder products
+    .not('name', 'like', '__CATEGORY_PLACEHOLDER_%') // Exclude placeholder products
+    .range(0, 9999); // Support up to 10,000 products per owner
 
   if (category === null) {
     query = query.is('category', null);
@@ -131,11 +137,12 @@ export async function getProductsByCategory(
     return [];
   }
 
-  // Get all active items for this owner
+  // Get all active items for this owner (with range to handle large datasets)
   const { data: items, error: itemsError } = await supabase
     .from('items')
     .select('product_id')
-    .eq('owner_id', ownerId);
+    .eq('owner_id', ownerId)
+    .range(0, 49999); // Support up to 50,000 items per owner
 
   if (itemsError) {
     console.error('Error fetching items:', itemsError);
@@ -154,6 +161,8 @@ export async function getProductsByCategory(
 /**
  * Get products that are not currently in the specified category
  * Only returns products that have at least one active item
+ * 
+ * FIXED: Uses range to bypass Supabase 1000-row limit
  */
 export async function getProductsNotInCategory(
   ownerId: string,
@@ -164,7 +173,8 @@ export async function getProductsNotInCategory(
     .from('products')
     .select('*')
     .eq('owner_id', ownerId)
-    .not('name', 'like', '__CATEGORY_PLACEHOLDER_%');
+    .not('name', 'like', '__CATEGORY_PLACEHOLDER_%')
+    .range(0, 9999); // Support up to 10,000 products per owner
 
   if (productsError) {
     console.error('Error fetching products not in category:', productsError);
@@ -175,11 +185,12 @@ export async function getProductsNotInCategory(
     return [];
   }
 
-  // Get all active items for this owner
+  // Get all active items for this owner (with range to handle large datasets)
   const { data: items, error: itemsError } = await supabase
     .from('items')
     .select('product_id')
-    .eq('owner_id', ownerId);
+    .eq('owner_id', ownerId)
+    .range(0, 49999); // Support up to 50,000 items per owner
 
   if (itemsError) {
     console.error('Error fetching items:', itemsError);
