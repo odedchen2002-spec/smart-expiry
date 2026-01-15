@@ -527,57 +527,61 @@ export default function AllScreen() {
                       </View>
 
                       <View style={styles.datePickerContainer}>
-                        {/* Start Date */}
-                        <View style={styles.datePickerRow}>
-                          <Text style={styles.datePickerLabel}>
-                            {t('filters.fromDate') || 'מתאריך'}:
-                          </Text>
-                          <TouchableOpacity
-                            style={styles.datePickerButton}
-                            onPress={() => {
-                              setShowStartDatePicker(true);
-                              setShowEndDatePicker(false);
-                            }}
-                          >
-                            <MaterialCommunityIcons name="calendar" size={20} color={THEME_COLORS.primary} />
-                            <Text style={styles.datePickerButtonText}>
-                              {tempStartDate 
-                                ? tempStartDate.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
-                                : t('filters.selectDate') || 'בחר תאריך'}
+                        {/* Start Date - Hide when End Date picker is open */}
+                        {!showEndDatePicker && (
+                          <View style={styles.datePickerRow}>
+                            <Text style={styles.datePickerLabel}>
+                              {t('filters.fromDate') || 'מתאריך'}:
                             </Text>
-                          </TouchableOpacity>
-                          {tempStartDate && (
-                            <TouchableOpacity onPress={() => setTempStartDate(null)}>
-                              <MaterialCommunityIcons name="close-circle" size={20} color="#9CA3AF" />
+                            <TouchableOpacity
+                              style={styles.datePickerButton}
+                              onPress={() => {
+                                setShowStartDatePicker(true);
+                                setShowEndDatePicker(false);
+                              }}
+                            >
+                              <MaterialCommunityIcons name="calendar" size={20} color={THEME_COLORS.primary} />
+                              <Text style={styles.datePickerButtonText}>
+                                {tempStartDate 
+                                  ? tempStartDate.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                                  : t('filters.selectDate') || 'בחר תאריך'}
+                              </Text>
                             </TouchableOpacity>
-                          )}
-                        </View>
+                            {tempStartDate && (
+                              <TouchableOpacity onPress={() => setTempStartDate(null)}>
+                                <MaterialCommunityIcons name="close-circle" size={20} color="#9CA3AF" />
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        )}
 
-                        {/* End Date */}
-                        <View style={styles.datePickerRow}>
-                          <Text style={styles.datePickerLabel}>
-                            {t('filters.toDate') || 'עד תאריך'}:
-                          </Text>
-                          <TouchableOpacity
-                            style={styles.datePickerButton}
-                            onPress={() => {
-                              setShowEndDatePicker(true);
-                              setShowStartDatePicker(false);
-                            }}
-                          >
-                            <MaterialCommunityIcons name="calendar" size={20} color={THEME_COLORS.primary} />
-                            <Text style={styles.datePickerButtonText}>
-                              {tempEndDate 
-                                ? tempEndDate.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
-                                : t('filters.selectDate') || 'בחר תאריך'}
+                        {/* End Date - Hide when Start Date picker is open */}
+                        {!showStartDatePicker && (
+                          <View style={styles.datePickerRow}>
+                            <Text style={styles.datePickerLabel}>
+                              {t('filters.toDate') || 'עד תאריך'}:
                             </Text>
-                          </TouchableOpacity>
-                          {tempEndDate && (
-                            <TouchableOpacity onPress={() => setTempEndDate(null)}>
-                              <MaterialCommunityIcons name="close-circle" size={20} color="#9CA3AF" />
+                            <TouchableOpacity
+                              style={styles.datePickerButton}
+                              onPress={() => {
+                                setShowEndDatePicker(true);
+                                setShowStartDatePicker(false);
+                              }}
+                            >
+                              <MaterialCommunityIcons name="calendar" size={20} color={THEME_COLORS.primary} />
+                              <Text style={styles.datePickerButtonText}>
+                                {tempEndDate 
+                                  ? tempEndDate.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                                  : t('filters.selectDate') || 'בחר תאריך'}
+                              </Text>
                             </TouchableOpacity>
-                          )}
-                        </View>
+                            {tempEndDate && (
+                              <TouchableOpacity onPress={() => setTempEndDate(null)}>
+                                <MaterialCommunityIcons name="close-circle" size={20} color="#9CA3AF" />
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        )}
                       </View>
 
                       {/* Date Pickers */}
