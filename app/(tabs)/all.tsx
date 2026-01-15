@@ -26,6 +26,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Dimensions, Modal, Platform, ScrollView, StyleSheet, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
 import { Button, Chip, IconButton, Surface, Text, Snackbar } from 'react-native-paper';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 type Item = Database['public']['Views']['items_with_details']['Row'];
 
@@ -75,7 +76,8 @@ export default function AllScreen() {
   
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [daysFilter, setDaysFilter] = useState<number | null>(null); // null = all, number = days before expiry
+  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [endDate, setEndDate] = useState<Date | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [filterMenuVisible, setFilterMenuVisible] = useState(false);
   const [snackbarVisible, setSnackbarVisible] = useState(false);
@@ -88,23 +90,30 @@ export default function AllScreen() {
   const [filterFromNav, setFilterFromNav] = useState<'today' | 'week' | null>(null);
 
   // Temporary filter states (before applying)
-  const [tempDaysFilter, setTempDaysFilter] = useState<number | null>(null);
+  const [tempStartDate, setTempStartDate] = useState<Date | null>(null);
+  const [tempEndDate, setTempEndDate] = useState<Date | null>(null);
   const [tempCategoryFilter, setTempCategoryFilter] = useState<string | null>(null);
+  
+  // Date picker visibility
+  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
 
-  // Handle navigation params for daysAhead filter
+  // Handle navigation params for daysAhead filter (legacy support)
+  // Note: This is kept for backward compatibility but date range filter is now the primary method
   useEffect(() => {
     if (params.daysAhead) {
       const days = parseInt(params.daysAhead, 10);
       if (!isNaN(days)) {
-        setDaysFilter(days);
-        // Track the source for display label
-        if (days === 0) {
-          setFilterFromNav('today');
-        } else if (days === 7) {
-          setFilterFromNav('week');
-        } else {
-          setFilterFromNav(null);
-        }
+        // Convert days to date range
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        setStartDate(today);
+        
+        const futureDate = new Date();
+        futureDate.setDate(futureDate.getDate() + days);
+        futureDate.setHours(23, 59, 59, 999);
+        setEndDate(futureDate);
+        
         // Clear URL params immediately after applying
         router.setParams({ daysAhead: undefined } as any);
       }
@@ -122,12 +131,9 @@ export default function AllScreen() {
     return Array.from(categories).sort();
   }, [items]);
 
-  // Filter items based on search query, days, and category
+  // Filter items based on search query, date range, and category
   const filteredItems = useMemo(() => {
     console.log('[AllScreen] filteredItems useMemo start, items.length:', items.length);
-    
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
 
     let filtered = items.filter((item) => item.status !== 'resolved');
     console.log('[AllScreen] After status filter:', filtered.length);
@@ -157,8 +163,8 @@ export default function AllScreen() {
 
     filtered = filterItems(filtered, searchQuery);
 
-    // Apply days filter
-    if (daysFilter !== null) {
+    // Apply date range filter (filter by expiry_date)
+    if (startDate || endDate) {
       filtered = filtered.filter((item) => {
         try {
           if (!item.expiry_date) return false;
@@ -167,8 +173,21 @@ export default function AllScreen() {
           if (isNaN(expiryDate.getTime())) return false;
 
           expiryDate.setHours(0, 0, 0, 0);
-          const daysUntilExpiry = differenceInDays(expiryDate, today);
-          return daysUntilExpiry >= 0 && daysUntilExpiry <= daysFilter;
+
+          // Check if expiry date is within the selected range
+          if (startDate) {
+            const start = new Date(startDate);
+            start.setHours(0, 0, 0, 0);
+            if (expiryDate < start) return false;
+          }
+
+          if (endDate) {
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999);
+            if (expiryDate > end) return false;
+          }
+
+          return true;
         } catch (error) {
           console.warn('Error filtering item by date:', error, item);
           return false;
@@ -182,28 +201,32 @@ export default function AllScreen() {
     }
 
     return filtered;
-  }, [items, searchQuery, daysFilter, categoryFilter]);
+  }, [items, searchQuery, startDate, endDate, categoryFilter]);
 
   // Initialize temp filters when dialog opens
   useEffect(() => {
     if (filterMenuVisible) {
-      setTempDaysFilter(daysFilter);
+      setTempStartDate(startDate);
+      setTempEndDate(endDate);
       setTempCategoryFilter(categoryFilter);
     }
-  }, [filterMenuVisible, daysFilter, categoryFilter]);
+  }, [filterMenuVisible, startDate, endDate, categoryFilter]);
 
   // Apply filters
   const handleApplyFilters = () => {
-    setDaysFilter(tempDaysFilter);
+    setStartDate(tempStartDate);
+    setEndDate(tempEndDate);
     setCategoryFilter(tempCategoryFilter);
     setFilterMenuVisible(false);
   };
 
   // Clear all filters
   const handleClearFilters = () => {
-    setTempDaysFilter(null);
+    setTempStartDate(null);
+    setTempEndDate(null);
     setTempCategoryFilter(null);
-    setDaysFilter(null);
+    setStartDate(null);
+    setEndDate(null);
     setCategoryFilter(null);
     setFilterFromNav(null);
     setFilterMenuVisible(false);
@@ -212,7 +235,7 @@ export default function AllScreen() {
   };
 
   // Check if any filters are active
-  const hasActiveFilters = daysFilter !== null || categoryFilter !== null;
+  const hasActiveFilters = startDate !== null || endDate !== null || categoryFilter !== null;
 
   // Pull-to-refresh (ONLY manual refetch path)
   const handleRefresh = async () => {
@@ -446,35 +469,19 @@ export default function AllScreen() {
 
           {hasActiveFilters && (
             <View style={[styles.activeFilterRow, rtlContainer]}>
-              {/* Show descriptive filter label */}
-              {filterFromNav === 'today' && (
-                <Chip
-                  icon="calendar-today"
-                  style={styles.activeFilterChip}
-                  mode="flat"
-                  textStyle={styles.activeFilterChipText}
-                >
-                  {t('filters.filteredToday') || 'מסונן: היום'}
-                </Chip>
-              )}
-              {filterFromNav === 'week' && (
-                <Chip
-                  icon="calendar-week"
-                  style={styles.activeFilterChip}
-                  mode="flat"
-                  textStyle={styles.activeFilterChipText}
-                >
-                  {t('filters.filtered7Days') || 'מסונן: 7 ימים'}
-                </Chip>
-              )}
-              {daysFilter !== null && !filterFromNav && (
+              {/* Show date range filter label */}
+              {(startDate || endDate) && (
                 <Chip
                   icon="calendar-range"
                   style={styles.activeFilterChip}
                   mode="flat"
                   textStyle={styles.activeFilterChipText}
                 >
-                  {daysFilter === 0 ? t('all.today') : `${daysFilter} ${t('all.days')}`}
+                  {startDate && endDate
+                    ? `${startDate.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' })} - ${endDate.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' })}`
+                    : startDate
+                    ? `מ-${startDate.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })}`
+                    : `עד ${endDate?.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })}`}
                 </Chip>
               )}
               <Chip
@@ -510,119 +517,92 @@ export default function AllScreen() {
                     </View>
                     <View style={styles.filterTitleDivider} />
 
-                    {/* CONTENT – date filter */}
+                    {/* CONTENT – date range filter */}
                     <View style={styles.filterContentWrapper}>
                       <View style={styles.filterSectionHeader}>
                         <MaterialCommunityIcons name="calendar-range" size={18} color="#6B7280" style={styles.filterSectionIcon} />
                         <Text style={styles.filterSectionTitle}>
-                          {t('filters.date')}
+                          {t('filters.dateRange') || 'טווח תאריכים'}
                         </Text>
                       </View>
 
-                      <ScrollView
-                        style={styles.filterChipsScroll}
-                        contentContainerStyle={styles.filterChipsGrid}
-                        showsVerticalScrollIndicator={false}
-                      >
-                        <TouchableOpacity
-                          style={[
-                            styles.filterChip,
-                            tempDaysFilter === null && styles.filterChipSelected
-                          ]}
-                          onPress={() => setTempDaysFilter(null)}
-                        >
-                          <Text style={[
-                            styles.filterChipText,
-                            tempDaysFilter === null && styles.filterChipTextSelected
-                          ]}>
-                            {t('all.allDays')}
+                      <View style={styles.datePickerContainer}>
+                        {/* Start Date */}
+                        <View style={styles.datePickerRow}>
+                          <Text style={styles.datePickerLabel}>
+                            {t('filters.fromDate') || 'מתאריך'}:
                           </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[
-                            styles.filterChip,
-                            tempDaysFilter === 0 && styles.filterChipSelected
-                          ]}
-                          onPress={() => setTempDaysFilter(0)}
-                        >
-                          <Text style={[
-                            styles.filterChipText,
-                            tempDaysFilter === 0 && styles.filterChipTextSelected
-                          ]}>
-                            {t('all.today')}
+                          <TouchableOpacity
+                            style={styles.datePickerButton}
+                            onPress={() => setShowStartDatePicker(true)}
+                          >
+                            <MaterialCommunityIcons name="calendar" size={20} color={THEME_COLORS.primary} />
+                            <Text style={styles.datePickerButtonText}>
+                              {tempStartDate 
+                                ? tempStartDate.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                                : t('filters.selectDate') || 'בחר תאריך'}
+                            </Text>
+                          </TouchableOpacity>
+                          {tempStartDate && (
+                            <TouchableOpacity onPress={() => setTempStartDate(null)}>
+                              <MaterialCommunityIcons name="close-circle" size={20} color="#9CA3AF" />
+                            </TouchableOpacity>
+                          )}
+                        </View>
+
+                        {/* End Date */}
+                        <View style={styles.datePickerRow}>
+                          <Text style={styles.datePickerLabel}>
+                            {t('filters.toDate') || 'עד תאריך'}:
                           </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[
-                            styles.filterChip,
-                            tempDaysFilter === 1 && styles.filterChipSelected
-                          ]}
-                          onPress={() => setTempDaysFilter(1)}
-                        >
-                          <Text style={[
-                            styles.filterChipText,
-                            tempDaysFilter === 1 && styles.filterChipTextSelected
-                          ]}>
-                            1 {t('all.day')}
-                          </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[
-                            styles.filterChip,
-                            tempDaysFilter === 3 && styles.filterChipSelected
-                          ]}
-                          onPress={() => setTempDaysFilter(3)}
-                        >
-                          <Text style={[
-                            styles.filterChipText,
-                            tempDaysFilter === 3 && styles.filterChipTextSelected
-                          ]}>
-                            3 {t('all.days')}
-                          </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[
-                            styles.filterChip,
-                            tempDaysFilter === 7 && styles.filterChipSelected
-                          ]}
-                          onPress={() => setTempDaysFilter(7)}
-                        >
-                          <Text style={[
-                            styles.filterChipText,
-                            tempDaysFilter === 7 && styles.filterChipTextSelected
-                          ]}>
-                            7 {t('all.days')}
-                          </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[
-                            styles.filterChip,
-                            tempDaysFilter === 14 && styles.filterChipSelected
-                          ]}
-                          onPress={() => setTempDaysFilter(14)}
-                        >
-                          <Text style={[
-                            styles.filterChipText,
-                            tempDaysFilter === 14 && styles.filterChipTextSelected
-                          ]}>
-                            14 {t('all.days')}
-                          </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[
-                            styles.filterChip,
-                            tempDaysFilter === 30 && styles.filterChipSelected
-                          ]}
-                          onPress={() => setTempDaysFilter(30)}
-                        >
-                          <Text style={[
-                            styles.filterChipText,
-                            tempDaysFilter === 30 && styles.filterChipTextSelected
-                          ]}>
-                            30 {t('all.days')}
-                          </Text>
-                        </TouchableOpacity>
-                      </ScrollView>
+                          <TouchableOpacity
+                            style={styles.datePickerButton}
+                            onPress={() => setShowEndDatePicker(true)}
+                          >
+                            <MaterialCommunityIcons name="calendar" size={20} color={THEME_COLORS.primary} />
+                            <Text style={styles.datePickerButtonText}>
+                              {tempEndDate 
+                                ? tempEndDate.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                                : t('filters.selectDate') || 'בחר תאריך'}
+                            </Text>
+                          </TouchableOpacity>
+                          {tempEndDate && (
+                            <TouchableOpacity onPress={() => setTempEndDate(null)}>
+                              <MaterialCommunityIcons name="close-circle" size={20} color="#9CA3AF" />
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </View>
+
+                      {/* Date Pickers */}
+                      {showStartDatePicker && (
+                        <DateTimePicker
+                          value={tempStartDate || new Date()}
+                          mode="date"
+                          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                          onChange={(event, selectedDate) => {
+                            setShowStartDatePicker(Platform.OS === 'ios');
+                            if (selectedDate) {
+                              setTempStartDate(selectedDate);
+                            }
+                          }}
+                        />
+                      )}
+
+                      {showEndDatePicker && (
+                        <DateTimePicker
+                          value={tempEndDate || new Date()}
+                          mode="date"
+                          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                          onChange={(event, selectedDate) => {
+                            setShowEndDatePicker(Platform.OS === 'ios');
+                            if (selectedDate) {
+                              setTempEndDate(selectedDate);
+                            }
+                          }}
+                          minimumDate={tempStartDate || undefined}
+                        />
+                      )}
                     </View>
 
                     {/* ACTION BUTTONS */}
@@ -1228,6 +1208,39 @@ const createStyles = (isRTL: boolean) => StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.9)',
     fontSize: 14,
     fontWeight: '500',
+    flex: 1,
+  },
+  datePickerContainer: {
+    gap: 16,
+    paddingVertical: 8,
+  },
+  datePickerRow: {
+    flexDirection: isRTL ? 'row-reverse' : 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  datePickerLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    minWidth: 70,
+  },
+  datePickerButton: {
+    flex: 1,
+    flexDirection: isRTL ? 'row-reverse' : 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  datePickerButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#374151',
     flex: 1,
   },
 });

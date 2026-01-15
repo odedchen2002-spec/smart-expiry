@@ -9,18 +9,16 @@
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { SUBSCRIPTION_PLANS, type SubscriptionTier } from '@/lib/billing';
+import { useIAP } from '@/lib/hooks/useIAP';
+import { useProfile } from '@/lib/hooks/useProfile';
+import { logSubscription } from '@/lib/logging/subscriptionLogger';
 import { getSubscriptionStatus, type SubscriptionStatus } from '@/lib/subscription';
 import { mockDevUpgradeToPro } from '@/lib/subscription/mockDevUpgrade';
 import { isDevEnv } from '@/lib/utils/devEnv';
-import { logSubscription } from '@/lib/logging/subscriptionLogger';
-import { useProfile } from '@/lib/hooks/useProfile';
-import { useIAP } from '@/lib/hooks/useIAP';
 import { getRtlContainerStyles, getRtlTextStyles } from '@/lib/utils/rtlStyles';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import Animated, { useSharedValue, useAnimatedStyle, withSequence, withTiming, withDelay } from 'react-native-reanimated';
 import { ActivityIndicator, Alert, AppState, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import {
   Appbar,
@@ -31,6 +29,7 @@ import {
   Text,
   useTheme,
 } from 'react-native-paper';
+import Animated, { useAnimatedStyle, useSharedValue, withDelay, withSequence, withTiming } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 type PlanType = 'pro' | 'pro_plus';
@@ -417,8 +416,8 @@ export default function SubscribeScreen() {
                       labelStyle={styles.upgradeButtonLabel}
                     >
                       {isCurrentPlan('pro_plus') 
-                        ? 'עבור למנוי Pro'
-                        : 'שדרג למנוי Pro'}
+                        ? 'Pro עבור למנוי'
+                        : 'Pro שדרג למנוי'}
                     </Button>
                   )}
                 </Card.Content>
@@ -512,7 +511,7 @@ export default function SubscribeScreen() {
                       buttonColor="#6d28d9"
                       labelStyle={styles.upgradeButtonLabel}
                     >
-                      קבל מנוי Pro+
+                      Pro+ קבל מנוי 
                     </Button>
                   )}
                 </Card.Content>
