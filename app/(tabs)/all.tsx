@@ -531,7 +531,7 @@ export default function AllScreen() {
                         {!showEndDatePicker && (
                           <View style={styles.datePickerRow}>
                             <Text style={styles.datePickerLabel}>
-                              {t('filters.fromDate') || 'מתאריך'}:
+                              :{t('filters.fromDate') || 'מתאריך'}
                             </Text>
                             <TouchableOpacity
                               style={styles.datePickerButton}
@@ -559,7 +559,7 @@ export default function AllScreen() {
                         {!showStartDatePicker && (
                           <View style={styles.datePickerRow}>
                             <Text style={styles.datePickerLabel}>
-                              {t('filters.toDate') || 'עד תאריך'}:
+                              :{t('filters.toDate') || 'עד תאריך'}
                             </Text>
                             <TouchableOpacity
                               style={styles.datePickerButton}
