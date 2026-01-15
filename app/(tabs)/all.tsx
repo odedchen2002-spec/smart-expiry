@@ -534,7 +534,10 @@ export default function AllScreen() {
                           </Text>
                           <TouchableOpacity
                             style={styles.datePickerButton}
-                            onPress={() => setShowStartDatePicker(true)}
+                            onPress={() => {
+                              setShowStartDatePicker(true);
+                              setShowEndDatePicker(false);
+                            }}
                           >
                             <MaterialCommunityIcons name="calendar" size={20} color={THEME_COLORS.primary} />
                             <Text style={styles.datePickerButtonText}>
@@ -557,7 +560,10 @@ export default function AllScreen() {
                           </Text>
                           <TouchableOpacity
                             style={styles.datePickerButton}
-                            onPress={() => setShowEndDatePicker(true)}
+                            onPress={() => {
+                              setShowEndDatePicker(true);
+                              setShowStartDatePicker(false);
+                            }}
                           >
                             <MaterialCommunityIcons name="calendar" size={20} color={THEME_COLORS.primary} />
                             <Text style={styles.datePickerButtonText}>
@@ -576,32 +582,68 @@ export default function AllScreen() {
 
                       {/* Date Pickers */}
                       {showStartDatePicker && (
-                        <DateTimePicker
-                          value={tempStartDate || new Date()}
-                          mode="date"
-                          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                          onChange={(event, selectedDate) => {
-                            setShowStartDatePicker(Platform.OS === 'ios');
-                            if (selectedDate) {
-                              setTempStartDate(selectedDate);
-                            }
-                          }}
-                        />
+                        <View>
+                          <DateTimePicker
+                            value={tempStartDate || new Date()}
+                            mode="date"
+                            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                            onChange={(event, selectedDate) => {
+                              // On Android, close immediately after selection
+                              // On iOS, keep open for spinner UX
+                              if (Platform.OS === 'android') {
+                                setShowStartDatePicker(false);
+                              }
+                              if (event.type === 'set' && selectedDate) {
+                                setTempStartDate(selectedDate);
+                              }
+                              if (event.type === 'dismissed') {
+                                setShowStartDatePicker(false);
+                              }
+                            }}
+                          />
+                          {Platform.OS === 'ios' && (
+                            <Button
+                              mode="text"
+                              onPress={() => setShowStartDatePicker(false)}
+                              style={styles.datePickerDoneButton}
+                            >
+                              {t('common.done') || 'סיום'}
+                            </Button>
+                          )}
+                        </View>
                       )}
 
                       {showEndDatePicker && (
-                        <DateTimePicker
-                          value={tempEndDate || new Date()}
-                          mode="date"
-                          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                          onChange={(event, selectedDate) => {
-                            setShowEndDatePicker(Platform.OS === 'ios');
-                            if (selectedDate) {
-                              setTempEndDate(selectedDate);
-                            }
-                          }}
-                          minimumDate={tempStartDate || undefined}
-                        />
+                        <View>
+                          <DateTimePicker
+                            value={tempEndDate || new Date()}
+                            mode="date"
+                            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                            onChange={(event, selectedDate) => {
+                              // On Android, close immediately after selection
+                              // On iOS, keep open for spinner UX
+                              if (Platform.OS === 'android') {
+                                setShowEndDatePicker(false);
+                              }
+                              if (event.type === 'set' && selectedDate) {
+                                setTempEndDate(selectedDate);
+                              }
+                              if (event.type === 'dismissed') {
+                                setShowEndDatePicker(false);
+                              }
+                            }}
+                            minimumDate={tempStartDate || undefined}
+                          />
+                          {Platform.OS === 'ios' && (
+                            <Button
+                              mode="text"
+                              onPress={() => setShowEndDatePicker(false)}
+                              style={styles.datePickerDoneButton}
+                            >
+                              {t('common.done') || 'סיום'}
+                            </Button>
+                          )}
+                        </View>
                       )}
                     </View>
 
@@ -1242,6 +1284,10 @@ const createStyles = (isRTL: boolean) => StyleSheet.create({
     fontWeight: '500',
     color: '#374151',
     flex: 1,
+  },
+  datePickerDoneButton: {
+    alignSelf: 'center',
+    marginTop: 8,
   },
 });
 
