@@ -608,7 +608,13 @@ export default function AllScreen() {
                           {Platform.OS === 'ios' && (
                             <Button
                               mode="text"
-                              onPress={() => setShowStartDatePicker(false)}
+                              onPress={() => {
+                                // Save current date if no date was selected
+                                if (!tempStartDate) {
+                                  setTempStartDate(new Date());
+                                }
+                                setShowStartDatePicker(false);
+                              }}
                               style={styles.datePickerDoneButton}
                             >
                               {t('common.done') || 'סיום'}
@@ -641,7 +647,13 @@ export default function AllScreen() {
                           {Platform.OS === 'ios' && (
                             <Button
                               mode="text"
-                              onPress={() => setShowEndDatePicker(false)}
+                              onPress={() => {
+                                // Save current date if no date was selected
+                                if (!tempEndDate) {
+                                  setTempEndDate(new Date());
+                                }
+                                setShowEndDatePicker(false);
+                              }}
                               style={styles.datePickerDoneButton}
                             >
                               {t('common.done') || 'סיום'}
