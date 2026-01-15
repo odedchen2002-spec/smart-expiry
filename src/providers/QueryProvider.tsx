@@ -9,7 +9,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { QueryClient } from '@tanstack/react-query';
+import { QueryClient, onlineManager } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister';
 import React, { useEffect, useMemo } from 'react';
@@ -18,6 +18,7 @@ import { OutboxProcessor } from '@/lib/outbox/OutboxProcessor';
 import { outboxStorage } from '@/lib/outbox/outboxStorage';
 import * as itemsApi from '@/data/itemsApi';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
+import { checkNetworkStatus } from '@/lib/hooks/useNetworkStatus';
 
 /**
  * Create QueryClient with React Native optimized defaults
@@ -109,6 +110,43 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const processor = getOutboxProcessor(queryClient, () => activeOwnerIdRef.current);
 
+    // Configure TanStack Query's onlineManager with custom network check
+    onlineManager.setEventListener((setOnline) => {
+      // Poll network status
+      const checkAndUpdate = async () => {
+        const isOnline = await checkNetworkStatus();
+        setOnline(isOnline);
+        
+        // Trigger outbox processing when coming online
+        if (isOnline) {
+          console.log('[QueryProvider] Network reconnected, processing outbox');
+          processor.process().catch(console.error);
+        }
+      };
+
+      // Check immediately
+      checkAndUpdate();
+
+      // Poll every 30 seconds
+      const intervalId = setInterval(checkAndUpdate, 30000);
+
+      // Setup app state listener (check when app becomes active)
+      let lastAppState: AppStateStatus = AppState.currentState;
+      const appStateSubscription = AppState.addEventListener('change', (nextAppState) => {
+        if (lastAppState.match(/inactive|background/) && nextAppState === 'active') {
+          console.log('[QueryProvider] App became active, checking network');
+          checkAndUpdate();
+        }
+        lastAppState = nextAppState;
+      });
+
+      // Return cleanup function
+      return () => {
+        clearInterval(intervalId);
+        appStateSubscription.remove();
+      };
+    });
+
     // Process outbox on mount (sync pending mutations)
     processor.process().catch(console.error);
 
@@ -116,20 +154,6 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
     if (activeOwnerId) {
       processor.rebuildMapping(activeOwnerId).catch(console.error);
     }
-
-    // Setup app state listener (process when app becomes active or network reconnects)
-    let lastAppState: AppStateStatus = AppState.currentState;
-    const appStateSubscription = AppState.addEventListener('change', (nextAppState) => {
-      if (lastAppState.match(/inactive|background/) && nextAppState === 'active') {
-        console.log('[QueryProvider] App became active, processing outbox');
-        processor.process().catch(console.error);
-      }
-      lastAppState = nextAppState;
-    });
-
-    return () => {
-      appStateSubscription.remove();
-    };
   }, [queryClient, activeOwnerId]);
 
   return (

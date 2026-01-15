@@ -16,6 +16,7 @@ import * as itemsApi from '@/data/itemsApi';
 import { OutboxStorage } from './outboxStorage';
 import type { OutboxEntry, ProcessResult } from './outboxTypes';
 import type { ItemsScope } from '@/lib/hooks/useItems';
+import { checkNetworkStatus } from '@/lib/hooks/useNetworkStatus';
 
 /**
  * Dependencies for OutboxProcessor (injected)
@@ -70,6 +71,13 @@ export class OutboxProcessor {
       return { processed: 0, succeeded: 0, failed: 0, skipped: 0 };
     }
 
+    // Check network connectivity before processing
+    const isOnline = await checkNetworkStatus();
+    if (!isOnline) {
+      this.logger.info('[Outbox] Offline - skipping processing');
+      return { processed: 0, succeeded: 0, failed: 0, skipped: 0 };
+    }
+
     this.isProcessing = true;
     this.abortController = new AbortController();
 
@@ -93,7 +101,7 @@ export class OutboxProcessor {
         return { processed, succeeded, failed, skipped };
       }
 
-      this.logger.info('Processing %d entities', entityKeys.length);
+      this.logger.info('[Outbox] Processing %d entities', entityKeys.length);
 
       // Process entities in parallel (max 3 concurrent)
       await this.processConcurrent(entityKeys, 3, async (entityKey) => {
@@ -114,6 +122,20 @@ export class OutboxProcessor {
           else if (result === 'skipped') skipped++;
         }
       });
+
+      // CRITICAL: After successful processing, trigger full refetch from Supabase
+      // This ensures Supabase is the source of truth and reconciles any conflicts
+      if (succeeded > 0) {
+        this.logger.info('[Outbox] Triggering full refetch after %d successful operations', succeeded);
+        
+        // Invalidate all item queries to force refetch
+        await this.queryClient.invalidateQueries({ 
+          queryKey: ['items', ownerId],
+          refetchType: 'all' // Force both active and inactive queries to refetch
+        });
+        
+        this.logger.info('[Outbox] Full refetch completed - Supabase is source of truth');
+      }
 
     } catch (error) {
       this.logger.error('[Outbox] Process error:', error);
@@ -217,6 +239,9 @@ export class OutboxProcessor {
 
   /**
    * Reconcile create: replace temp item with real item
+   * 
+   * CRITICAL: Cancel ongoing queries first to prevent race conditions
+   * Supabase data always wins after reconciliation
    */
   private async reconcileCreate(
     entry: OutboxEntry,
@@ -225,19 +250,35 @@ export class OutboxProcessor {
   ): Promise<void> {
     const queryKey = ['items', ownerId, entry.scope || 'all'];
 
-    // Replace temp item with real item
-    this.queryClient.setQueryData(queryKey, (old: any[] = []) =>
-      old.map((item) =>
-        item.id === entry.tempId
-          ? { ...serverItem, _syncStatus: 'synced', _localItemKey: entry.localItemKey }
-          : item
-      )
-    );
+    // Cancel ongoing queries to prevent race (Supabase wins)
+    await this.queryClient.cancelQueries({ queryKey });
 
-    // Update mapping
+    // Replace temp item with real item from server
+    this.queryClient.setQueryData(queryKey, (old: any[] = []) => {
+      const updated = old.map((item) =>
+        item.id === entry.tempId
+          ? { 
+              ...serverItem, 
+              _syncStatus: 'synced', 
+              _localItemKey: entry.localItemKey,
+              _reconciledAt: Date.now() // Timestamp for debugging
+            }
+          : item
+      );
+      
+      // Remove any duplicates that might have appeared during reconciliation
+      const seenIds = new Set<string>();
+      return updated.filter((item) => {
+        if (seenIds.has(item.id)) return false;
+        seenIds.add(item.id);
+        return true;
+      });
+    });
+
+    // Update mapping (stable key -> real ID)
     this.localKeyToIdMap.set(entry.localItemKey, serverItem.id);
 
-    // Invalidate stats
+    // Invalidate stats (don't await - background refresh)
     this.queryClient.invalidateQueries({ queryKey: ['stats', ownerId] });
 
     this.logger.info('[Outbox] Create reconciled', {
@@ -248,6 +289,8 @@ export class OutboxProcessor {
 
   /**
    * Reconcile update: replace item with fresh server data
+   * 
+   * CRITICAL: Cancel ongoing queries first to prevent race conditions
    */
   private async reconcileUpdate(
     entry: OutboxEntry,
@@ -255,6 +298,9 @@ export class OutboxProcessor {
     ownerId: string
   ): Promise<void> {
     const queryKey = ['items', ownerId, entry.scope || 'all'];
+
+    // Cancel ongoing queries to prevent race (Supabase wins)
+    await this.queryClient.cancelQueries({ queryKey });
 
     this.queryClient.setQueryData(queryKey, (old: any[] = []) => {
       this.logger.info('[Outbox] reconcileUpdate start', { 
@@ -320,12 +366,17 @@ export class OutboxProcessor {
 
   /**
    * Reconcile delete: remove item completely from ALL caches
+   * 
+   * CRITICAL: Cancel ongoing queries first to prevent race conditions
    */
   private async reconcileDelete(entry: OutboxEntry, ownerId: string): Promise<void> {
     const itemId = entry.payload.itemId;
     const localKey = entry.localItemKey;
 
     console.log('[Outbox] reconcileDelete START', { itemId, localKey, scope: entry.scope });
+
+    // Cancel all item queries to prevent race
+    await this.queryClient.cancelQueries({ queryKey: ['items', ownerId] });
 
     // Remove from ALL scopes (not just the one specified in entry)
     // A deleted item should disappear from 'all', 'expired', etc.

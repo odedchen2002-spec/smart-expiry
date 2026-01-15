@@ -125,6 +125,15 @@
     "filtered7Days": "Filtered: 7 Days",
     "clearFilter": "Clear Filter"
   },
+  "sync": {
+    "syncing": "Syncing",
+    "operations": "operations",
+    "pendingOperations": "operations pending",
+    "pendingSync": "pending sync",
+    "failed": "failed",
+    "syncComplete": "Sync complete",
+    "syncFailed": "Sync failed"
+  },
   "item": {
     "name": "Name",
     "expiry": "Expiry Date",

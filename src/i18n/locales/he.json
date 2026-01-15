@@ -125,6 +125,15 @@
     "filtered7Days": "מסונן: 7 ימים",
     "clearFilter": "נקה סינון"
   },
+  "sync": {
+    "syncing": "מסנכרן",
+    "operations": "פעולות",
+    "pendingOperations": "פעולות ממתינות",
+    "pendingSync": "ממתינות לסנכרון",
+    "failed": "נכשלו",
+    "syncComplete": "הסנכרון הושלם",
+    "syncFailed": "הסנכרון נכשל"
+  },
   "item": {
     "name": "שם",
     "expiry": "תאריך תפוגה",

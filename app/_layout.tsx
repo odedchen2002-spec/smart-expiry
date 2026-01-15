@@ -15,7 +15,7 @@ import { QueryProvider } from '@/providers/QueryProvider';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
 import { disconnectIAP, initializeIAP } from '@/lib/iap/iapService';
 import { initPushNotificationsForUser } from '@/lib/notifications/initPushNotifications';
-import { cleanupOfflineQueue, initOfflineQueue } from '@/lib/offline/offlineQueue';
+// Offline queue removed - now handled by Outbox pattern in QueryProvider
 import { supabase } from '@/lib/supabase/client';
 import { theme } from '@/lib/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -230,8 +230,7 @@ function IAPInitialization() {
       console.warn('[IAP] Initialization error:', error);
     });
 
-    // Initialize offline queue for background sync
-    initOfflineQueue();
+    // Offline operations now handled by Outbox in QueryProvider
 
     // Clean up IAP connection when app is terminated
     const subscription = AppState.addEventListener('change', (nextAppState) => {
