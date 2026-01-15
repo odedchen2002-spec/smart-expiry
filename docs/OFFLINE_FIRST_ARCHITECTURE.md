@@ -357,6 +357,98 @@ queryClient.getQueryData(['items', ownerId, 'all'])
 await AsyncStorage.getItem('@expiryx/outbox_entries_v1')
 ```
 
+## Production Features
+
+### ✅ Dead-Letter Queue Handling
+
+Failed operations (after 5 retries) are moved to a "dead-letter" state:
+
+**Features:**
+- Failed entries marked with `status: 'failed'`
+- Manual retry (resets attempts counter)
+- Manual discard (permanent removal)
+- Bulk operations (retry all / discard all)
+- UI component: `DeadLetterManager`
+
+**Access:**
+```typescript
+import { outboxStorage } from '@/lib/outbox/outboxStorage';
+
+// Get failed entries
+const failed = await outboxStorage.getFailed();
+
+// Retry one
+await outboxStorage.retryFailed(entryId);
+
+// Discard one
+await outboxStorage.discardFailed(entryId);
+
+// Retry all
+await outboxStorage.retryAllFailed();
+
+// Discard all
+await outboxStorage.discardAllFailed();
+```
+
+**UI Component:**
+```typescript
+import { DeadLetterManager } from '@/components/sync/DeadLetterManager';
+
+<DeadLetterManager onClose={() => setVisible(false)} />
+```
+
+### ✅ Schema Versioning
+
+Outbox entries include `schemaVersion` for safe evolution:
+
+**Current Version:** `1` (see `OUTBOX_SCHEMA_VERSION`)
+
+**Migration Strategy:**
+- On version mismatch: clear outbox (safe - operations can be retried)
+- On upgrade: incompatible entries filtered automatically
+- On downgrade: all entries cleared (prevents crashes)
+
+**How It Works:**
+```typescript
+// OutboxEntry now includes:
+interface OutboxEntry {
+  schemaVersion: number; // Current: 1
+  // ... other fields
+}
+
+// On load:
+// 1. Check stored version vs current
+// 2. If mismatch → clear data
+// 3. Filter incompatible entries
+// 4. Auto-cleanup on next write
+```
+
+**When to Increment:**
+- Add/remove required fields from OutboxEntry
+- Change payload structure
+- Modify processing logic incompatibly
+
+**Developer Note:**
+Update `OUTBOX_SCHEMA_VERSION` in `outboxTypes.ts` when changing structure.
+
+### ✅ Dev-Only Test Plan
+
+Runtime verification component for development:
+
+```typescript
+import { OutboxTestPlan } from '@/lib/outbox/__dev__/OutboxTestPlan';
+
+// In dev screen:
+<OutboxTestPlan />
+```
+
+**Tests:**
+1. Offline create → optimistic UI + pending_sync
+2. Reconnect → process once → full refetch
+3. Temp ID → real ID replacement
+4. No race conditions (cancelQueries)
+5. Idempotency (no duplicates)
+
 ## Future Improvements
 
 ### Considered but not yet implemented:

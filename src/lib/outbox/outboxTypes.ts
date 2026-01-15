@@ -5,9 +5,18 @@
 import type { ItemsScope } from '@/hooks/queries/useItemsQuery';
 
 /**
+ * Current outbox schema version
+ * Increment when OutboxEntry structure changes
+ */
+export const OUTBOX_SCHEMA_VERSION = 1;
+
+/**
  * Outbox entry representing a queued mutation
  */
 export interface OutboxEntry {
+  // Schema versioning
+  schemaVersion: number; // Schema version for migration detection
+
   // Core identification
   id: string; // UUID - unique identifier for this outbox entry
   type: 'createItem' | 'updateItem' | 'deleteItem' | 'bulkCreate';

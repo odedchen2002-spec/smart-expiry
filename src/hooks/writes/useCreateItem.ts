@@ -16,6 +16,7 @@ import { triggerOutboxProcessing } from '@/providers/QueryProvider';
 import { itemsKeys, type ItemsScope } from '@/hooks/queries/useItemsQuery';
 import type { ItemWithDetails } from '@/lib/supabase/queries/items';
 import type { Database } from '@/types/database';
+import { OUTBOX_SCHEMA_VERSION } from '@/lib/outbox/outboxTypes';
 
 type ItemInsert = Database['public']['Tables']['items']['Insert'];
 
@@ -96,6 +97,7 @@ export function useCreateItem(ownerId: string, scope: ItemsScope = 'all') {
 
         // 4. Enqueue to Outbox (durable write - await)
         await outbox.enqueue({
+          schemaVersion: OUTBOX_SCHEMA_VERSION,
           id: uuid(),
           type: 'createItem',
           payload: data,

@@ -14,6 +14,7 @@ import { useOutbox } from '@/lib/outbox/useOutbox';
 import { triggerOutboxProcessing } from '@/providers/QueryProvider';
 import { itemsKeys, type ItemsScope } from '@/hooks/queries/useItemsQuery';
 import type { ItemWithDetails } from '@/lib/supabase/queries/items';
+import { OUTBOX_SCHEMA_VERSION } from '@/lib/outbox/outboxTypes';
 
 interface UndoState {
   itemId: string;
@@ -73,6 +74,7 @@ export function useDeleteItem(ownerId: string, scope: ItemsScope = 'all') {
         // 5. Enqueue to Outbox (await)
         const outboxId = uuid();
         await outbox.enqueue({
+          schemaVersion: OUTBOX_SCHEMA_VERSION,
           id: outboxId,
           type: 'deleteItem',
           payload: { itemId },

@@ -13,6 +13,7 @@ import { triggerOutboxProcessing } from '@/providers/QueryProvider';
 import { itemsKeys, type ItemsScope } from '@/hooks/queries/useItemsQuery';
 import type { ItemWithDetails } from '@/lib/supabase/queries/items';
 import type { Database } from '@/types/database';
+import { OUTBOX_SCHEMA_VERSION } from '@/lib/outbox/outboxTypes';
 
 type ItemUpdate = Database['public']['Tables']['items']['Update'];
 
@@ -87,6 +88,7 @@ export function useUpdateItem(ownerId: string, scope: ItemsScope = 'all') {
         // 5. Enqueue to Outbox (await)
         const outboxId = uuid();
         await outbox.enqueue({
+          schemaVersion: OUTBOX_SCHEMA_VERSION,
           id: outboxId,
           type: 'updateItem',
           payload: { itemId, updates },

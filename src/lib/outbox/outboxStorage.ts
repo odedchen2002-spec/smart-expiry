@@ -9,20 +9,84 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { OutboxEntry, OutboxStats } from './outboxTypes';
+import { OUTBOX_SCHEMA_VERSION } from './outboxTypes';
 
 const OUTBOX_STORAGE_KEY = '@expiryx/outbox_entries_v1';
+const OUTBOX_SCHEMA_KEY = '@expiryx/outbox_schema_version';
 
 /**
  * Outbox Storage API
  */
 export class OutboxStorage {
   /**
+   * Check and migrate schema if needed
+   * Returns true if migration occurred
+   */
+  private async checkAndMigrateSchema(): Promise<boolean> {
+    try {
+      const storedVersion = await AsyncStorage.getItem(OUTBOX_SCHEMA_KEY);
+      const currentVersion = OUTBOX_SCHEMA_VERSION;
+      
+      if (!storedVersion) {
+        // First time - set current version
+        await AsyncStorage.setItem(OUTBOX_SCHEMA_KEY, String(currentVersion));
+        console.log('[OutboxStorage] Schema version initialized:', currentVersion);
+        return false;
+      }
+
+      const storedVersionNum = parseInt(storedVersion, 10);
+      
+      if (storedVersionNum < currentVersion) {
+        console.warn(
+          `[OutboxStorage] Schema version mismatch: stored=${storedVersionNum}, current=${currentVersion}`
+        );
+        
+        // MIGRATION STRATEGY: Clear old data (safe for outbox - operations can be retried)
+        // Alternative: Could implement migration logic here for each version
+        console.warn('[OutboxStorage] Clearing old outbox data due to schema change');
+        await this.clear();
+        await AsyncStorage.setItem(OUTBOX_SCHEMA_KEY, String(currentVersion));
+        
+        return true;
+      }
+
+      if (storedVersionNum > currentVersion) {
+        // User downgraded app - clear data to prevent crashes
+        console.error(
+          `[OutboxStorage] Downgrade detected: stored=${storedVersionNum}, current=${currentVersion}`
+        );
+        await this.clear();
+        await AsyncStorage.setItem(OUTBOX_SCHEMA_KEY, String(currentVersion));
+        
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      console.error('[OutboxStorage] Schema migration failed:', error);
+      // On error, clear data to be safe
+      await this.clear();
+      return true;
+    }
+  }
+
+  /**
    * Enqueue a new entry to the outbox
    * MUST be durable before returning
    */
   async enqueue(entry: OutboxEntry): Promise<void> {
+    // Ensure schema is current
+    await this.checkAndMigrateSchema();
+    
     const entries = await this.getAllEntries();
-    entries.push(entry);
+    
+    // Add schema version to entry
+    const entryWithSchema: OutboxEntry = {
+      ...entry,
+      schemaVersion: OUTBOX_SCHEMA_VERSION,
+    };
+    
+    entries.push(entryWithSchema);
     
     // Write to AsyncStorage
     await AsyncStorage.setItem(OUTBOX_STORAGE_KEY, JSON.stringify(entries));
@@ -38,13 +102,42 @@ export class OutboxStorage {
 
   /**
    * Get all entries (internal use)
+   * Filters out entries with incompatible schema versions
    */
   private async getAllEntries(): Promise<OutboxEntry[]> {
+    // Check schema first
+    await this.checkAndMigrateSchema();
+    
     const data = await AsyncStorage.getItem(OUTBOX_STORAGE_KEY);
     if (!data) return [];
     
     try {
-      return JSON.parse(data);
+      const parsed: OutboxEntry[] = JSON.parse(data);
+      
+      // Filter entries with compatible schema
+      const compatible = parsed.filter(entry => {
+        if (!entry.schemaVersion) {
+          console.warn('[OutboxStorage] Entry missing schemaVersion:', entry.id);
+          return false;
+        }
+        if (entry.schemaVersion !== OUTBOX_SCHEMA_VERSION) {
+          console.warn(
+            `[OutboxStorage] Entry ${entry.id} has incompatible schema: ${entry.schemaVersion} (current: ${OUTBOX_SCHEMA_VERSION})`
+          );
+          return false;
+        }
+        return true;
+      });
+
+      // If we filtered out incompatible entries, persist the clean list
+      if (compatible.length !== parsed.length) {
+        console.log(
+          `[OutboxStorage] Filtered ${parsed.length - compatible.length} incompatible entries`
+        );
+        await AsyncStorage.setItem(OUTBOX_STORAGE_KEY, JSON.stringify(compatible));
+      }
+
+      return compatible;
     } catch (error) {
       console.error('[OutboxStorage] Failed to parse entries:', error);
       return [];
@@ -130,6 +223,100 @@ export class OutboxStorage {
   async clear(): Promise<void> {
     await AsyncStorage.removeItem(OUTBOX_STORAGE_KEY);
     console.log('[OutboxStorage] Cleared all entries');
+  }
+
+  /**
+   * DEAD-LETTER HANDLING: Retry a failed entry
+   * Resets status to 'pending' and clears error state
+   */
+  async retryFailed(id: string): Promise<void> {
+    const entries = await this.getAllEntries();
+    const index = entries.findIndex((e) => e.id === id);
+    
+    if (index === -1) {
+      console.warn('[OutboxStorage] Entry not found for retry:', id);
+      return;
+    }
+
+    const entry = entries[index];
+    
+    if (entry.status !== 'failed') {
+      console.warn('[OutboxStorage] Entry is not in failed state:', id, entry.status);
+      return;
+    }
+
+    // Reset for retry
+    entries[index] = {
+      ...entry,
+      status: 'pending',
+      attempts: 0, // Reset attempt counter
+      lastAttemptAt: null,
+      lastError: null,
+    };
+
+    await AsyncStorage.setItem(OUTBOX_STORAGE_KEY, JSON.stringify(entries));
+    console.log('[OutboxStorage] Failed entry reset for retry:', id);
+  }
+
+  /**
+   * DEAD-LETTER HANDLING: Discard a failed entry permanently
+   * Removes from outbox without processing
+   */
+  async discardFailed(id: string): Promise<void> {
+    const entries = await this.getAllEntries();
+    const entry = entries.find((e) => e.id === id);
+    
+    if (!entry) {
+      console.warn('[OutboxStorage] Entry not found for discard:', id);
+      return;
+    }
+
+    if (entry.status !== 'failed') {
+      console.warn('[OutboxStorage] Entry is not in failed state:', id, entry.status);
+      return;
+    }
+
+    // Remove from storage
+    const filtered = entries.filter((e) => e.id !== id);
+    await AsyncStorage.setItem(OUTBOX_STORAGE_KEY, JSON.stringify(filtered));
+    
+    console.log('[OutboxStorage] Failed entry discarded:', id, entry.type);
+  }
+
+  /**
+   * Get all failed entries (for dead-letter UI)
+   */
+  async getFailed(): Promise<OutboxEntry[]> {
+    const allEntries = await this.getAllEntries();
+    return allEntries.filter((entry) => entry.status === 'failed');
+  }
+
+  /**
+   * Retry all failed entries
+   */
+  async retryAllFailed(): Promise<number> {
+    const failed = await this.getFailed();
+    
+    for (const entry of failed) {
+      await this.retryFailed(entry.id);
+    }
+
+    console.log('[OutboxStorage] Retrying all failed entries:', failed.length);
+    return failed.length;
+  }
+
+  /**
+   * Discard all failed entries
+   */
+  async discardAllFailed(): Promise<number> {
+    const failed = await this.getFailed();
+    
+    for (const entry of failed) {
+      await this.discardFailed(entry.id);
+    }
+
+    console.log('[OutboxStorage] Discarded all failed entries:', failed.length);
+    return failed.length;
   }
 
   /**
