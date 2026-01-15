@@ -1291,7 +1291,7 @@ const createStyles = (isRTL: boolean) => StyleSheet.create({
   },
   datePickerDoneButton: {
     alignSelf: 'center',
-    marginTop: 20,
+    marginTop: 32,
   },
 });
 
