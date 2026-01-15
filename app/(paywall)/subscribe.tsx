@@ -252,7 +252,7 @@ export default function SubscribeScreen() {
   const renderPriceSection = (plan: PlanType) => {
     const priceString = plan === 'pro' ? proPriceString : proPlusPriceString;
     const fallbackPrice = plan === 'pro' ? SUBSCRIPTION_PLANS.pro.priceMonthly : SUBSCRIPTION_PLANS.pro_plus.priceMonthly;
-    const accentColor = plan === 'pro' ? '#4CAF50' : '#FF6B35';
+    const accentColor = plan === 'pro' ? '#0052CC' : '#D97706';
 
     // Loading state
     if (isIAPLoading && !priceString) {
@@ -329,34 +329,45 @@ export default function SubscribeScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.plansContainer}>
-            {/* Pro Plan */}
+            {/* CARD 1: Pro Plan (Top - Most Recommended) */}
             <Card 
               style={[
                 styles.planCard,
+                styles.proCard,
                 selectedPlan === 'pro' && styles.selectedCard,
                 isCurrentPlan('pro') && styles.currentPlanCard,
               ]}
               onPress={() => !isCurrentPlan('pro') && setSelectedPlan('pro')}
             >
+              {/* Top Border */}
+              <View style={styles.proTopBorder} />
+              
+              {/* Badge */}
+              {!isCurrentPlan('pro') && (
+                <View style={styles.recommendedBadge}>
+                  <Text style={styles.recommendedBadgeText}>מומלץ</Text>
+                </View>
+              )}
+
               <View style={styles.cardContentWrapper}>
                 <Card.Content style={styles.cardContent}>
                   {isCurrentPlan('pro') && (
-                    <View style={styles.currentBadge}>
+                    <View style={[styles.currentBadge, { backgroundColor: '#0052CC' }]}>
                       <MaterialCommunityIcons name="check-circle" size={14} color="#FFFFFF" />
                       <Text style={styles.currentBadgeText}>{t('subscription.subscribe.currentPlan')}</Text>
                     </View>
                   )}
 
                   <View style={styles.planHeader}>
-                    <View style={[styles.iconCircle, { backgroundColor: '#E8F5E9' }]}>
-                      <MaterialCommunityIcons name="store" size={24} color="#4CAF50" />
+                    <View style={[styles.iconCircle, { backgroundColor: '#E6F0FF' }]}>
+                      <MaterialCommunityIcons name="store" size={28} color="#0052CC" />
                     </View>
                     <View style={styles.planTitleContainer}>
-                      <Text variant="titleLarge" style={[styles.planTitle, { color: '#4CAF50' }, rtlText]}>
+                      <Text variant="titleLarge" style={[styles.planTitle, { color: '#0052CC' }, rtlText]}>
                         Pro
                       </Text>
                       <Text variant="bodySmall" style={[styles.planSubtitle, rtlText]}>
-                        {t('subscription.subscribe.proDescription')}
+                        התוכנית הסטנדרטית
                       </Text>
                     </View>
                   </View>
@@ -369,71 +380,72 @@ export default function SubscribeScreen() {
 
                   <View style={styles.featuresList}>
                     <View style={[styles.featureItem, rtlContainer]}>
-                      <MaterialCommunityIcons name="check" size={18} color="#4CAF50" />
+                      <MaterialCommunityIcons name="check" size={18} color="#0052CC" />
                       <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
-                        {t('subscription.subscribe.proFeature1')}
+                        עד 20 תעודות משלוח בחודש
                       </Text>
                     </View>
                     <View style={[styles.featureItem, rtlContainer]}>
-                      <MaterialCommunityIcons name="check" size={18} color="#4CAF50" />
+                      <MaterialCommunityIcons name="check" size={18} color="#0052CC" />
                       <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
-                        {t('subscription.subscribe.proFeature2')}
+                        עד 2,000 מוצרים
                       </Text>
                     </View>
                     <View style={[styles.featureItem, rtlContainer]}>
-                      <MaterialCommunityIcons name="check" size={18} color="#4CAF50" />
+                      <MaterialCommunityIcons name="check" size={18} color="#0052CC" />
                       <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
-                        {t('subscription.subscribe.proFeature3')}
+                        כל התכונות כלולות
                       </Text>
                     </View>
                     <View style={[styles.featureItem, rtlContainer]}>
-                      <MaterialCommunityIcons name="check" size={18} color="#4CAF50" />
+                      <MaterialCommunityIcons name="check" size={18} color="#0052CC" />
                       <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
-                        {t('subscription.subscribe.proFeature4')}
+                        גיבויים אוטומטיים
                       </Text>
                     </View>
                   </View>
 
-                  {!isCurrentPlan('pro') && selectedPlan === 'pro' && (
+                  {!isCurrentPlan('pro') && (
                     <Button
                       mode="contained"
                       onPress={() => handlePurchase('pro')}
                       loading={iapProcessing || isPurchasing}
                       disabled={iapProcessing || isPurchasing || restoring || isIAPRestoring}
                       style={styles.upgradeButton}
-                      buttonColor="#4CAF50"
+                      buttonColor="#0052CC"
+                      labelStyle={styles.upgradeButtonLabel}
                     >
                       {isCurrentPlan('pro_plus') 
-                        ? t('subscription.subscribe.switchToPro')
-                        : t('subscription.subscribe.upgradeToPro')}
+                        ? 'עבור ל-Pro'
+                        : 'שדרג ל-Pro'}
                     </Button>
                   )}
                 </Card.Content>
               </View>
             </Card>
 
-            {/* Pro+ Plan - Featured */}
+            {/* CARD 2: Pro+ Plan (Middle - Best Value) */}
             <Card 
               style={[
                 styles.planCard,
-                styles.featuredCard,
+                styles.proPlusCard,
                 selectedPlan === 'pro_plus' && styles.selectedCard,
                 isCurrentPlan('pro_plus') && styles.currentPlanCard,
               ]}
               onPress={() => !isCurrentPlan('pro_plus') && setSelectedPlan('pro_plus')}
             >
-              {/* Most Popular Badge - hide if current plan */}
+              {/* Gold Badge */}
               {!isCurrentPlan('pro_plus') && (
-                <View style={styles.popularBadge}>
+                <View style={styles.bestValueBadge}>
                   <MaterialCommunityIcons name="star" size={14} color="#FFFFFF" />
-                  <Text style={styles.popularBadgeText}>{t('subscription.subscribe.mostPopular')}</Text>
+                  <Text style={styles.bestValueBadgeText}>הכי פופולרי</Text>
                 </View>
               )}
 
               <View style={styles.cardContentWrapper}>
                 <Card.Content style={[styles.cardContent, !isCurrentPlan('pro_plus') && { paddingTop: 32 }]}>
                   {isCurrentPlan('pro_plus') && (
-                    <View style={styles.currentBadge}>
+                    <View style={[styles.currentBadge, { backgroundColor: '#D97706' }]}>
                       <MaterialCommunityIcons name="check-circle" size={14} color="#FFFFFF" />
                       <Text style={styles.currentBadgeText}>{t('subscription.subscribe.currentPlan')}</Text>
                     </View>
@@ -441,19 +453,16 @@ export default function SubscribeScreen() {
 
                   <View style={styles.planHeader}>
                     <Animated.View style={crownAnimatedStyle}>
-                      <LinearGradient
-                        colors={['#FF6B35', '#F7931E']}
-                        style={styles.iconCircleGradient}
-                      >
-                        <MaterialCommunityIcons name="crown" size={24} color="#FFFFFF" />
-                      </LinearGradient>
+                      <View style={[styles.iconCircle, { backgroundColor: '#FEF3C7' }]}>
+                        <MaterialCommunityIcons name="crown" size={28} color="#D97706" />
+                      </View>
                     </Animated.View>
                     <View style={styles.planTitleContainer}>
-                      <Text variant="titleLarge" style={[styles.planTitle, { color: '#FF6B35' }, rtlText]}>
+                      <Text variant="titleLarge" style={[styles.planTitle, { color: '#D97706' }, rtlText]}>
                         Pro+
                       </Text>
                       <Text variant="bodySmall" style={[styles.planSubtitle, rtlText]}>
-                        {t('subscription.subscribe.proPlusDescription')}
+                        לעסקים בנפח גבוה
                       </Text>
                     </View>
                   </View>
@@ -466,54 +475,100 @@ export default function SubscribeScreen() {
 
                   <View style={styles.featuresList}>
                     <View style={[styles.featureItem, rtlContainer]}>
-                      <MaterialCommunityIcons name="check" size={18} color="#FF6B35" />
+                      <MaterialCommunityIcons name="check" size={18} color="#D97706" />
                       <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
-                        {t('subscription.subscribe.proPlusFeature1')}
+                        תעודות משלוח בנפח גבוה
                       </Text>
                     </View>
                     <View style={[styles.featureItem, rtlContainer]}>
-                      <MaterialCommunityIcons name="check" size={18} color="#FF6B35" />
+                      <MaterialCommunityIcons name="check" size={18} color="#D97706" />
                       <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
-                        {t('subscription.subscribe.proPlusFeature2')}
+                        מוצרים בנפח גבוה
                       </Text>
                     </View>
                     <View style={[styles.featureItem, rtlContainer]}>
-                      <MaterialCommunityIcons name="check" size={18} color="#FF6B35" />
+                      <MaterialCommunityIcons name="check" size={18} color="#D97706" />
                       <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
-                        {t('subscription.subscribe.proPlusFeature3')}
+                        מתאים למינימרקטים וסופרמרקטים
                       </Text>
                     </View>
                     <View style={[styles.featureItem, rtlContainer]}>
-                      <MaterialCommunityIcons name="check" size={18} color="#FF6B35" />
+                      <MaterialCommunityIcons name="check" size={18} color="#D97706" />
                       <Text variant="bodySmall" style={[styles.featureText, rtlText]}>
-                        {t('subscription.subscribe.proPlusFeature4')}
+                        כל התכונות כלולות
                       </Text>
                     </View>
                   </View>
 
-                  {!isCurrentPlan('pro_plus') && selectedPlan === 'pro_plus' && (
-                    <LinearGradient
-                      colors={['#FF7A3D', '#FF5A24']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={styles.upgradeButtonGradient}
+                  {!isCurrentPlan('pro_plus') && (
+                    <Button
+                      mode="contained"
+                      onPress={() => handlePurchase('pro_plus')}
+                      loading={iapProcessing || isPurchasing}
+                      disabled={iapProcessing || isPurchasing || restoring || isIAPRestoring}
+                      style={[styles.upgradeButton, { backgroundColor: '#D97706' }]}
+                      buttonColor="#D97706"
+                      labelStyle={styles.upgradeButtonLabel}
                     >
-                      <Button
-                        mode="contained"
-                        onPress={() => handlePurchase('pro_plus')}
-                        loading={iapProcessing || isPurchasing}
-                        disabled={iapProcessing || isPurchasing || restoring || isIAPRestoring}
-                        style={styles.upgradeButtonInGradient}
-                        labelStyle={styles.upgradeButtonLabel}
-                        buttonColor="transparent"
-                      >
-                        {t('subscription.subscribe.upgradeToProPlus')}
-                      </Button>
-                    </LinearGradient>
+                      קבל Pro+
+                    </Button>
                   )}
                 </Card.Content>
               </View>
             </Card>
+
+            {/* CARD 3: Free Plan (Bottom - Safety Net) */}
+            {!isCurrentPlan('pro') && !isCurrentPlan('pro_plus') && (
+              <Card 
+                style={[styles.planCard, styles.freeCard]}
+                onPress={() => router.back()}
+              >
+                <View style={styles.cardContentWrapper}>
+                  <Card.Content style={styles.cardContent}>
+                    <View style={styles.planHeader}>
+                      <View style={[styles.iconCircle, { backgroundColor: '#F3F4F6' }]}>
+                        <MaterialCommunityIcons name="account-outline" size={28} color="#9CA3AF" />
+                      </View>
+                      <View style={styles.planTitleContainer}>
+                        <Text variant="titleLarge" style={[styles.planTitle, { color: '#6B7280' }, rtlText]}>
+                          חינמי
+                        </Text>
+                        <Text variant="bodySmall" style={[styles.planSubtitle, rtlText]}>
+                          שימוש בסיסי
+                        </Text>
+                      </View>
+                    </View>
+
+                    <Divider style={styles.divider} />
+
+                    <View style={styles.featuresList}>
+                      <View style={[styles.featureItem, rtlContainer]}>
+                        <MaterialCommunityIcons name="check" size={18} color="#9CA3AF" />
+                        <Text variant="bodySmall" style={[styles.featureText, { color: '#6B7280' }, rtlText]}>
+                          שימוש בסיסי
+                        </Text>
+                      </View>
+                      <View style={[styles.featureItem, rtlContainer]}>
+                        <MaterialCommunityIcons name="check" size={18} color="#9CA3AF" />
+                        <Text variant="bodySmall" style={[styles.featureText, { color: '#6B7280' }, rtlText]}>
+                          הזנה ידנית בלבד
+                        </Text>
+                      </View>
+                    </View>
+
+                    <Button
+                      mode="outlined"
+                      onPress={() => router.back()}
+                      style={styles.freeContinueButton}
+                      labelStyle={styles.freeContinueButtonLabel}
+                      textColor="#9CA3AF"
+                    >
+                      המשך עם תוכנית חינמית
+                    </Button>
+                  </Card.Content>
+                </View>
+              </Card>
+            )}
           </View>
 
           {/* Fair Use Disclaimer */}
@@ -565,7 +620,7 @@ function createStyles(isRTL: boolean) {
   return StyleSheet.create({
     safeArea: {
       flex: 1,
-      backgroundColor: '#F5F7FA',
+      backgroundColor: '#F9FAFB',
     },
     container: {
       flex: 1,
@@ -574,11 +629,11 @@ function createStyles(isRTL: boolean) {
       paddingTop: 0,
       marginTop: 0,
       elevation: 0,
-      backgroundColor: '#F5F7FA',
+      backgroundColor: '#F9FAFB',
     },
     content: {
       flex: 1,
-      backgroundColor: '#F5F7FA',
+      backgroundColor: '#F9FAFB',
     },
     contentContainer: {
       paddingBottom: 24,
@@ -593,7 +648,7 @@ function createStyles(isRTL: boolean) {
       paddingTop: 0,
       paddingBottom: 20,
       alignItems: 'center',
-      backgroundColor: '#F5F7FA',
+      backgroundColor: '#F9FAFB',
     },
     title: {
       fontWeight: '700',
@@ -608,43 +663,120 @@ function createStyles(isRTL: boolean) {
     },
     plansContainer: {
       paddingHorizontal: 16,
-      gap: 16,
+      gap: 20,
     },
     planCard: {
       borderRadius: 16,
       backgroundColor: '#FFFFFF',
       overflow: 'visible',
+    },
+    // Pro Card (Blue)
+    proCard: {
+      borderWidth: 0,
       ...Platform.select({
         ios: {
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.08,
-          shadowRadius: 8,
+          shadowColor: '#0052CC',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.15,
+          shadowRadius: 12,
         },
         android: {
-          elevation: 3,
+          elevation: 5,
         },
       }),
     },
-    featuredCard: {
+    proTopBorder: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      height: 4,
+      backgroundColor: '#0052CC',
+      borderTopLeftRadius: 16,
+      borderTopRightRadius: 16,
+      zIndex: 1,
+    },
+    recommendedBadge: {
+      position: 'absolute',
+      top: 12,
+      ...(isRTL ? { left: 12 } : { right: 12 }),
+      backgroundColor: '#0052CC',
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 12,
+      zIndex: 2,
+    },
+    recommendedBadgeText: {
+      color: '#FFFFFF',
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    // Pro+ Card (Gold)
+    proPlusCard: {
       borderWidth: 2,
-      borderColor: '#FF6B35',
+      borderColor: '#D97706',
+      ...Platform.select({
+        ios: {
+          shadowColor: '#D97706',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.2,
+          shadowRadius: 12,
+        },
+        android: {
+          elevation: 6,
+        },
+      }),
+    },
+    bestValueBadge: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      flexDirection: isRTL ? 'row-reverse' : 'row',
+      backgroundColor: '#D97706',
+      paddingVertical: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      zIndex: 1,
+      borderTopLeftRadius: 14,
+      borderTopRightRadius: 14,
+    },
+    bestValueBadgeText: {
+      color: '#FFFFFF',
+      fontSize: 13,
+      fontWeight: '700',
+    },
+    // Free Card (Gray)
+    freeCard: {
+      borderWidth: 1,
+      borderColor: '#D1D5DB',
+      backgroundColor: '#FFFFFF',
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 4,
+        },
+        android: {
+          elevation: 1,
+        },
+      }),
     },
     selectedCard: {
       borderWidth: 2,
       borderColor: '#2196F3',
     },
     currentPlanCard: {
-      borderWidth: 2,
-      borderColor: '#4CAF50',
-      backgroundColor: '#F1F8F4',
+      backgroundColor: '#F0F9FF',
     },
     cardContentWrapper: {
       overflow: 'hidden',
       borderRadius: 14,
     },
     cardContent: {
-      padding: 16,
+      padding: 20,
     },
     currentBadge: {
       position: 'absolute',
@@ -652,7 +784,6 @@ function createStyles(isRTL: boolean) {
       ...(isRTL ? { left: 12 } : { right: 12 }),
       flexDirection: isRTL ? 'row-reverse' : 'row',
       alignItems: 'center',
-      backgroundColor: '#4CAF50',
       paddingHorizontal: 10,
       paddingVertical: 4,
       borderRadius: 16,
@@ -687,20 +818,20 @@ function createStyles(isRTL: boolean) {
     planHeader: {
       flexDirection: isRTL ? 'row-reverse' : 'row',
       alignItems: 'center',
-      gap: 12,
-      marginBottom: 16,
+      gap: 14,
+      marginBottom: 18,
     },
     iconCircle: {
-      width: 48,
-      height: 48,
-      borderRadius: 24,
+      width: 52,
+      height: 52,
+      borderRadius: 26,
       justifyContent: 'center',
       alignItems: 'center',
     },
     iconCircleGradient: {
-      width: 48,
-      height: 48,
-      borderRadius: 24,
+      width: 52,
+      height: 52,
+      borderRadius: 26,
       justifyContent: 'center',
       alignItems: 'center',
     },
@@ -708,26 +839,30 @@ function createStyles(isRTL: boolean) {
       flex: 1,
     },
     planTitle: {
-      fontWeight: '700',
-      fontSize: 20,
+      fontWeight: '800',
+      fontSize: 24,
+      letterSpacing: 0.3,
     },
     planSubtitle: {
-      color: '#757575',
-      marginTop: 2,
+      color: '#6B7280',
+      marginTop: 4,
+      fontSize: 14,
     },
     priceContainer: {
       flexDirection: isRTL ? 'row-reverse' : 'row',
       alignItems: 'baseline',
-      gap: 6,
-      marginBottom: 8,
+      gap: 8,
+      marginBottom: 12,
     },
     priceAmount: {
-      fontWeight: '700',
-      fontSize: 32,
+      fontWeight: '800',
+      fontSize: 36,
+      letterSpacing: -0.5,
     },
     priceUnit: {
-      color: '#7A7A7A',
-      fontSize: 14,
+      color: '#6B7280',
+      fontSize: 15,
+      fontWeight: '500',
     },
     priceLoadingContainer: {
       flexDirection: 'row',
@@ -747,40 +882,53 @@ function createStyles(isRTL: boolean) {
       fontSize: 13,
     },
     divider: {
-      marginVertical: 16,
-      backgroundColor: '#E0E0E0',
+      marginVertical: 18,
+      backgroundColor: '#E5E7EB',
     },
     featuresList: {
-      gap: 10,
-      marginBottom: 8,
+      gap: 12,
+      marginBottom: 12,
     },
     featureItem: {
       flexDirection: isRTL ? 'row-reverse' : 'row',
-      alignItems: 'center',
-      gap: 10,
+      alignItems: 'flex-start',
+      gap: 12,
     },
     featureText: {
       flex: 1,
-      color: '#424242',
-      fontSize: 14,
-      lineHeight: 20,
+      color: '#374151',
+      fontSize: 15,
+      lineHeight: 22,
+      paddingTop: 2,
     },
     upgradeButtonGradient: {
-      borderRadius: 10,
-      marginTop: 16,
+      borderRadius: 12,
+      marginTop: 20,
       overflow: 'hidden',
     },
     upgradeButton: {
-      borderRadius: 10,
-      marginTop: 16,
+      borderRadius: 12,
+      marginTop: 20,
+      paddingVertical: 4,
     },
     upgradeButtonInGradient: {
       borderRadius: 0,
       margin: 0,
     },
     upgradeButtonLabel: {
+      fontSize: 15,
+      fontWeight: '700',
+    },
+    freeContinueButton: {
+      marginTop: 16,
+      borderRadius: 10,
+      borderWidth: 1.5,
+      borderColor: '#9CA3AF',
+    },
+    freeContinueButtonLabel: {
       fontSize: 14,
       fontWeight: '600',
+      color: '#6B7280',
     },
     fairUseContainer: {
       flexDirection: isRTL ? 'row-reverse' : 'row',
