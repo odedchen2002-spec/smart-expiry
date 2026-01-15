@@ -12,11 +12,14 @@
 
 import type { QueryClient } from '@tanstack/react-query';
 import { v4 as uuid } from 'uuid';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as itemsApi from '@/data/itemsApi';
 import { OutboxStorage } from './outboxStorage';
 import type { OutboxEntry, ProcessResult } from './outboxTypes';
 import type { ItemsScope } from '@/lib/hooks/useItems';
 import { checkNetworkStatus } from '@/lib/hooks/useNetworkStatus';
+
+const LOCAL_KEY_MAPPING_STORAGE_KEY = '@expiryx/local_key_mapping_v1';
 
 /**
  * Dependencies for OutboxProcessor (injected)
@@ -59,6 +62,37 @@ export class OutboxProcessor {
     this.getOwnerId = deps.getOwnerId;
     this.showToast = deps.showToast || (() => {});
     this.logger = deps.logger || console;
+    
+    // Load persisted mapping on initialization
+    this.loadMapping().catch(console.error);
+  }
+
+  /**
+   * Load localKeyToIdMap from AsyncStorage
+   */
+  private async loadMapping(): Promise<void> {
+    try {
+      const stored = await AsyncStorage.getItem(LOCAL_KEY_MAPPING_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        this.localKeyToIdMap = new Map(Object.entries(parsed));
+        this.logger.info('[Outbox] Loaded mapping:', this.localKeyToIdMap.size, 'entries');
+      }
+    } catch (error) {
+      this.logger.error('[Outbox] Error loading mapping:', error);
+    }
+  }
+
+  /**
+   * Persist localKeyToIdMap to AsyncStorage
+   */
+  private async persistMapping(): Promise<void> {
+    try {
+      const obj = Object.fromEntries(this.localKeyToIdMap);
+      await AsyncStorage.setItem(LOCAL_KEY_MAPPING_STORAGE_KEY, JSON.stringify(obj));
+    } catch (error) {
+      this.logger.error('[Outbox] Error persisting mapping:', error);
+    }
   }
 
   /**
@@ -128,9 +162,18 @@ export class OutboxProcessor {
       if (succeeded > 0) {
         this.logger.info('[Outbox] Triggering full refetch after %d successful operations', succeeded);
         
-        // Invalidate all item queries to force refetch
+        // Invalidate ALL item queries (list + detail) using predicate
+        // Matches any queryKey starting with ['items', ownerId]
         await this.queryClient.invalidateQueries({ 
-          queryKey: ['items', ownerId],
+          predicate: (query) => {
+            const key = query.queryKey;
+            return (
+              Array.isArray(key) &&
+              key.length >= 2 &&
+              key[0] === 'items' &&
+              key[1] === ownerId
+            );
+          },
           refetchType: 'all' // Force both active and inactive queries to refetch
         });
         
@@ -248,13 +291,30 @@ export class OutboxProcessor {
     serverItem: any,
     ownerId: string
   ): Promise<void> {
-    const queryKey = ['items', ownerId, entry.scope || 'all'];
+    const listQueryKey = ['items', ownerId, entry.scope || 'all'];
+    const tempDetailKey = ['items', ownerId, 'detail', entry.tempId];
+    const realDetailKey = ['items', ownerId, 'detail', serverItem.id];
 
     // Cancel ongoing queries to prevent race (Supabase wins)
-    await this.queryClient.cancelQueries({ queryKey });
+    // Cancel list queries
+    await this.queryClient.cancelQueries({ queryKey: listQueryKey });
+    // Cancel detail queries (both temp and real)
+    await this.queryClient.cancelQueries({ 
+      predicate: (query) => {
+        const key = query.queryKey;
+        return (
+          Array.isArray(key) &&
+          key.length === 4 &&
+          key[0] === 'items' &&
+          key[1] === ownerId &&
+          key[2] === 'detail' &&
+          (key[3] === entry.tempId || key[3] === serverItem.id)
+        );
+      }
+    });
 
-    // Replace temp item with real item from server
-    this.queryClient.setQueryData(queryKey, (old: any[] = []) => {
+    // 1. Replace temp item with real item in LIST cache
+    this.queryClient.setQueryData(listQueryKey, (old: any[] = []) => {
       const updated = old.map((item) =>
         item.id === entry.tempId
           ? { 
@@ -275,8 +335,36 @@ export class OutboxProcessor {
       });
     });
 
-    // Update mapping (stable key -> real ID)
+    // 2. Update DETAIL cache for tempId (if exists)
+    const tempDetailData = this.queryClient.getQueryData(tempDetailKey);
+    if (tempDetailData) {
+      this.logger.info('[Outbox] Found detail cache for tempId, updating');
+      // Set real ID detail cache with server data
+      this.queryClient.setQueryData(realDetailKey, {
+        ...serverItem,
+        _syncStatus: 'synced',
+        _localItemKey: entry.localItemKey,
+        _reconciledAt: Date.now()
+      });
+    }
+
+    // 3. Set DETAIL cache for realId (always, in case detail view is active)
+    this.queryClient.setQueryData(realDetailKey, {
+      ...serverItem,
+      _syncStatus: 'synced',
+      _localItemKey: entry.localItemKey,
+      _reconciledAt: Date.now()
+    });
+
+    // 4. Remove tempId detail cache
+    this.queryClient.removeQueries({ 
+      queryKey: tempDetailKey,
+      exact: true 
+    });
+
+    // 5. Update mapping (stable key -> real ID) and persist
     this.localKeyToIdMap.set(entry.localItemKey, serverItem.id);
+    await this.persistMapping();
 
     // Invalidate stats (don't await - background refresh)
     this.queryClient.invalidateQueries({ queryKey: ['stats', ownerId] });
@@ -284,6 +372,7 @@ export class OutboxProcessor {
     this.logger.info('[Outbox] Create reconciled', {
       tempId: entry.tempId,
       realId: serverItem.id,
+      detailCacheUpdated: !!tempDetailData
     });
   }
 
