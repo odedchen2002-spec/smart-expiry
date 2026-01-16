@@ -10,10 +10,19 @@
  * 
  * Note: This table uses `store_id` (not `owner_id`).
  * See src/lib/supabase/ownerUtils.ts for naming convention documentation.
+ * 
+ * OFFLINE-SAFE:
+ * - Caches pending count to AsyncStorage
+ * - Returns cached count when offline
+ * - No network errors when offline
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../client';
 import type { Database } from '@/types/database';
+import { checkNetworkStatus } from '@/lib/hooks/useNetworkStatus';
+
+const PENDING_COUNT_CACHE_KEY = (storeId: string) => `pending_count_${storeId}`;
 
 type PendingItem = Database['public']['Tables']['pending_items']['Row'];
 type PendingItemInsert = Database['public']['Tables']['pending_items']['Insert'];
@@ -196,10 +205,32 @@ export async function getUnresolvedPendingItems(
  * Get count of unresolved pending items for a store.
  * Useful for showing a badge or indicator.
  * 
+ * OFFLINE-SAFE: Returns cached count when offline
+ * 
  * @param storeId - The store/owner ID
  */
 export async function getUnresolvedPendingItemsCount(storeId: string): Promise<number> {
   if (!storeId) {
+    return 0;
+  }
+
+  // Check if online
+  const isOnline = await checkNetworkStatus();
+  
+  if (!isOnline) {
+    // Return cached count when offline
+    try {
+      const cached = await AsyncStorage.getItem(PENDING_COUNT_CACHE_KEY(storeId));
+      if (cached) {
+        const count = parseInt(cached, 10);
+        console.log('[pendingItemsService] Offline - returning cached count:', count);
+        return count;
+      }
+    } catch (err) {
+      console.warn('[pendingItemsService] Error loading cached count:', err);
+    }
+    // No cache - return 0
+    console.log('[pendingItemsService] Offline - no cache, returning 0');
     return 0;
   }
 
@@ -211,13 +242,32 @@ export async function getUnresolvedPendingItemsCount(storeId: string): Promise<n
       .is('resolved_at', null);
 
     if (error) {
-      console.error('[pendingItemsService] Error counting pending items:', error);
+      console.warn('[pendingItemsService] Error counting pending items, checking cache');
+      // Try to return cached count on error
+      const cached = await AsyncStorage.getItem(PENDING_COUNT_CACHE_KEY(storeId));
+      if (cached) {
+        return parseInt(cached, 10);
+      }
       return 0;
     }
 
-    return count || 0;
+    const finalCount = count || 0;
+    
+    // Cache the count for offline use
+    await AsyncStorage.setItem(PENDING_COUNT_CACHE_KEY(storeId), String(finalCount));
+    
+    return finalCount;
   } catch (error) {
-    console.error('[pendingItemsService] Error counting pending items:', error);
+    console.warn('[pendingItemsService] Error counting pending items, using cache');
+    // Try to return cached count
+    try {
+      const cached = await AsyncStorage.getItem(PENDING_COUNT_CACHE_KEY(storeId));
+      if (cached) {
+        return parseInt(cached, 10);
+      }
+    } catch (cacheErr) {
+      console.warn('[pendingItemsService] Error loading cache:', cacheErr);
+    }
     return 0;
   }
 }

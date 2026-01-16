@@ -1,10 +1,16 @@
 /**
  * Hook for managing user profile
  * Fetches profile data including profile_name from profiles table
+ * 
+ * OFFLINE-SAFE:
+ * - Persists profile to AsyncStorage
+ * - Only fetches when online
+ * - Uses cached profile when offline
  */
 
 import { useState, useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@/context/AuthContext';
 import { getProfile } from '../supabase/mutations/profiles';
 import type { Database } from '@/types/database';
@@ -12,12 +18,16 @@ import { supabase } from '@/lib/supabase/client';
 import { onPurchaseSuccess } from '../iap/iapService';
 import { reloadAppWithMessage } from '../utils/appReload';
 import { useLanguage } from '@/context/LanguageContext';
+import { useNetworkStatus } from './useNetworkStatus';
 
 type Profile = Database['public']['Tables']['profiles']['Row'];
+
+const PROFILE_CACHE_KEY = (userId: string) => `profile_cache_${userId}`;
 
 export function useProfile() {
   const { user } = useAuth();
   const { t } = useLanguage();
+  const { isOnline } = useNetworkStatus();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -27,24 +37,61 @@ export function useProfile() {
   // Track if initial profile load is complete (to avoid false "plan changed" on login)
   const hasCompletedInitialLoadRef = useRef(false);
 
+  // Load cached profile immediately on mount
   useEffect(() => {
     if (!user) {
       setProfile(null);
       setLoading(false);
       setError(null);
-      // Reset state when user logs out to prevent false "plan changed" dialogs on next login
       prevTierRef.current = null;
       hasCompletedInitialLoadRef.current = false;
       return;
     }
 
+    const loadCache = async () => {
+      try {
+        const cached = await AsyncStorage.getItem(PROFILE_CACHE_KEY(user.id));
+        if (cached) {
+          const cachedProfile = JSON.parse(cached);
+          setProfile(cachedProfile);
+          setLoading(false); // Stop loading - we have cache
+          console.log('[useProfile] Loaded from cache');
+        }
+      } catch (err) {
+        console.warn('[useProfile] Failed to load cache:', err);
+      }
+    };
+
+    loadCache();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    // Don't fetch if offline
+    if (!isOnline) {
+      console.log('[useProfile] Offline - skipping fetch, using cache');
+      setLoading(false);
+      setError(null); // Clear any previous error
+      return;
+    }
+
     const fetchProfile = async () => {
       try {
-        setLoading(true);
         setError(null);
+        // Don't show loading if we have cached data
+        if (!profile) {
+          setLoading(true);
+        }
 
         const profileData = await getProfile(user.id);
         setProfile(profileData);
+        
+        // Persist to cache
+        await AsyncStorage.setItem(PROFILE_CACHE_KEY(user.id), JSON.stringify(profileData));
+        console.log('[useProfile] Profile fetched and cached');
       } catch (err) {
         const error = err as Error;
         const errorMessage = error.message?.toLowerCase() || '';
@@ -54,20 +101,19 @@ export function useProfile() {
           errorMessage.includes('gateway error');
         
         if (isNetworkIssue) {
-          console.warn('useProfile: Network error fetching profile (will retry on next render):', error.message);
-          // For network errors, we'll keep the previous profile if it exists
-          // and let the component retry on next mount or when user changes
+          console.warn('[useProfile] Network error - using cached data');
+          // Keep cached profile, don't set error
         } else {
-          console.error('useProfile: Error fetching profile:', error);
+          console.error('[useProfile] Error fetching profile:', error);
+          setError(error);
         }
-        setError(error);
       } finally {
         setLoading(false);
       }
     };
 
     fetchProfile();
-  }, [user]);
+  }, [user, isOnline]);
 
   // Keep profile fresh without requiring an app restart:
   // 1) Refetch when app returns to foreground (user may come back from checkout)
@@ -78,14 +124,24 @@ export function useProfile() {
 
     let isMounted = true;
 
-    const refreshProfile = () => {
-      getProfile(user.id)
-        .then((p) => {
-          if (isMounted) setProfile(p);
-        })
-        .catch(() => {
-          // Non-critical
-        });
+    const refreshProfile = async () => {
+      // Only refresh if online
+      if (!isOnline) {
+        console.log('[useProfile] Offline - skipping refresh');
+        return;
+      }
+      
+      try {
+        const p = await getProfile(user.id);
+        if (isMounted) {
+          setProfile(p);
+          // Update cache
+          await AsyncStorage.setItem(PROFILE_CACHE_KEY(user.id), JSON.stringify(p));
+        }
+      } catch (err) {
+        // Non-critical - keep cached data
+        console.warn('[useProfile] Refresh failed, keeping cached data');
+      }
     };
 
     const onAppState = AppState.addEventListener('change', (nextState) => {
@@ -127,7 +183,7 @@ export function useProfile() {
       unsubscribePurchase();
       supabase.removeChannel(channel);
     };
-  }, [user?.id]);
+  }, [user?.id, isOnline]);
 
   // Detect subscription tier changes and trigger app reload
   useEffect(() => {
@@ -172,11 +228,20 @@ export function useProfile() {
   const refetch = async () => {
     if (!user) return;
     
+    // Don't fetch if offline
+    if (!isOnline) {
+      console.log('[useProfile] Offline - skipping refetch');
+      return;
+    }
+    
     try {
       setLoading(true);
       setError(null);
       const profileData = await getProfile(user.id);
       setProfile(profileData);
+      
+      // Update cache
+      await AsyncStorage.setItem(PROFILE_CACHE_KEY(user.id), JSON.stringify(profileData));
     } catch (err) {
       const error = err as Error;
       const errorMessage = error.message?.toLowerCase() || '';
@@ -186,9 +251,9 @@ export function useProfile() {
         errorMessage.includes('gateway error');
       
       if (isNetworkIssue) {
-        console.warn('useProfile: Network error refetching profile:', error.message);
+        console.warn('[useProfile] Network error refetching - keeping cached data');
       } else {
-        console.error('useProfile: Error refetching profile:', error);
+        console.error('[useProfile] Error refetching profile:', error);
       }
       setError(error);
     } finally {

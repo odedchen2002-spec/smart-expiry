@@ -3,6 +3,7 @@
  * 
  * Replaces legacy useItems hook for read operations
  * Uses persisted cache for instant rendering
+ * Offline-safe: Only fetches when online, uses cache when offline
  */
 
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
@@ -14,6 +15,7 @@ import {
   getItemsExpiringTomorrow,
   getItemsExpiringNextWeek,
 } from '@/lib/supabase/queries/items';
+import { useNetworkStatus } from '@/lib/hooks/useNetworkStatus';
 
 export type ItemsScope = 'all' | 'today' | 'tomorrow' | 'week' | 'expired';
 
@@ -70,13 +72,16 @@ export function useItemsQuery({
   scope,
   enabled = true,
 }: UseItemsQueryOptions): UseQueryResult<ItemWithDetails[], Error> {
+  const { isOnline } = useNetworkStatus();
+  
   return useQuery({
     queryKey: itemsKeys.byScope(ownerId || 'none', scope),
     queryFn: () => {
       if (!ownerId) throw new Error('Owner ID is required');
       return fetchItemsByScope(ownerId, scope);
     },
-    enabled: enabled && !!ownerId,
+    // OFFLINE-SAFE: Only fetch when online AND enabled AND has ownerId
+    enabled: enabled && !!ownerId && isOnline,
     
     // Cache config (longer for items lists)
     staleTime: 5 * 60 * 1000, // 5 minutes
@@ -84,6 +89,10 @@ export function useItemsQuery({
     
     // Keep previous data while refetching (smooth UX)
     placeholderData: (previousData) => previousData,
+    
+    // Offline-first: Serve from cache when offline, don't show errors
+    networkMode: 'offlineFirst',
+    retry: false, // Don't retry when offline
     
     // React Native specific
     refetchOnMount: false, // Use cache first
@@ -96,6 +105,8 @@ export function useItemsQuery({
  * Hook for querying single item detail
  */
 export function useItemQuery(ownerId: string | undefined, itemId: string | undefined) {
+  const { isOnline } = useNetworkStatus();
+  
   return useQuery({
     queryKey: itemsKeys.detail(ownerId || 'none', itemId || 'none'),
     queryFn: async () => {
@@ -107,11 +118,16 @@ export function useItemQuery(ownerId: string | undefined, itemId: string | undef
       if (!item) throw new Error('Item not found');
       return item;
     },
-    enabled: !!ownerId && !!itemId,
+    // OFFLINE-SAFE: Only fetch when online
+    enabled: !!ownerId && !!itemId && isOnline,
     
     // Shorter stale time for detail views (more likely to be edited)
     staleTime: 2 * 60 * 1000, // 2 minutes
     gcTime: 1 * 60 * 60 * 1000, // 1 hour
+    
+    // Offline-first: Serve from cache when offline
+    networkMode: 'offlineFirst',
+    retry: false, // Don't retry when offline
     
     refetchOnMount: false,
     refetchOnReconnect: true,

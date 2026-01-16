@@ -1,6 +1,10 @@
 /**
  * Trial ended dialog
  * Shows once when trial period ends, explaining the free plan limits
+ * 
+ * OFFLINE-SAFE:
+ * - Only shows when online AND subscription confirmed expired
+ * - Never shows when offline (uses cached subscription state)
  */
 
 import React, { useState, useEffect } from 'react';
@@ -12,6 +16,7 @@ import { useRouter } from 'expo-router';
 import { useSubscription } from '@/lib/hooks/useSubscription';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
 import { useLanguage } from '@/context/LanguageContext';
+import { useNetworkStatus } from '@/lib/hooks/useNetworkStatus';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRtlTextStyles, getRtlContainerStyles } from '@/lib/utils/rtlStyles';
 import { THEME_COLORS } from '@/lib/constants/colors';
@@ -21,8 +26,9 @@ const TRIAL_ENDED_KEY = (ownerId: string) => `trial_ended_shown_${ownerId}`;
 export function TrialEndedDialog() {
   const router = useRouter();
   const { t, isRTL } = useLanguage();
-  const { subscription, isPro, isFreeTrialActive, loading: subscriptionLoading } = useSubscription();
+  const { subscription, isPro, isFreeTrialActive, loading: subscriptionLoading, error: subscriptionError } = useSubscription();
   const { activeOwnerId } = useActiveOwner();
+  const { isOnline } = useNetworkStatus();
   const rtlContainer = getRtlContainerStyles(isRTL);
   const rtlText = getRtlTextStyles(isRTL);
   const rtlTextCenter = getRtlTextStyles(isRTL, 'center');
@@ -34,6 +40,23 @@ export function TrialEndedDialog() {
       // CRITICAL: Wait for subscription to load before checking
       if (subscriptionLoading) {
         console.log('[TrialEndedDialog] Subscription still loading, waiting...');
+        return;
+      }
+
+      // OFFLINE-SAFE: Don't show dialog if offline or if there's a fetch error
+      // We can only confirm trial ended when we have successful online data
+      if (!isOnline) {
+        console.log('[TrialEndedDialog] Offline - not showing dialog (using cached subscription)');
+        // Hide dialog if it's showing and we go offline
+        if (visible) {
+          setVisible(false);
+        }
+        return;
+      }
+
+      // Don't show if subscription fetch failed
+      if (subscriptionError) {
+        console.log('[TrialEndedDialog] Subscription error - not showing dialog');
         return;
       }
 
@@ -66,16 +89,17 @@ export function TrialEndedDialog() {
         return;
       }
 
-      // Show dialog if:
-      // 1. User is NOT in trial (trial ended)
-      // 2. User is on free plan
-      // 3. We haven't shown this dialog before for this owner
+      // Show dialog ONLY if:
+      // 1. Online (confirmed state)
+      // 2. User is NOT in trial (trial ended)
+      // 3. User is on free plan
+      // 4. We haven't shown this dialog before for this owner
       if (!isFreeTrialActive && subscription.plan === 'free' && subscription.trialDaysRemaining === 0) {
         const reminderKey = TRIAL_ENDED_KEY(activeOwnerId);
         const hasShown = await AsyncStorage.getItem(reminderKey);
         
         if (!hasShown) {
-          console.log('[TrialEndedDialog] Showing trial ended dialog');
+          console.log('[TrialEndedDialog] Showing trial ended dialog (online, trial confirmed ended)');
           setVisible(true);
           // Mark as shown
           await AsyncStorage.setItem(reminderKey, 'true');
@@ -86,7 +110,7 @@ export function TrialEndedDialog() {
     };
 
     checkTrialEnded();
-  }, [subscription, activeOwnerId, isPro, isFreeTrialActive, subscriptionLoading, visible]);
+  }, [subscription, activeOwnerId, isPro, isFreeTrialActive, subscriptionLoading, subscriptionError, isOnline, visible]);
 
   const handleUpgrade = () => {
     setVisible(false);
@@ -98,7 +122,8 @@ export function TrialEndedDialog() {
   };
 
   // Don't show if subscription is loading or user is Pro or still on free trial
-  if (subscriptionLoading || !subscription || isPro || isFreeTrialActive) {
+  // ALSO: Don't show if offline (can't confirm expiry state)
+  if (subscriptionLoading || !subscription || isPro || isFreeTrialActive || !isOnline) {
     return null;
   }
 

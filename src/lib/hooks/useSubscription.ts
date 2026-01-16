@@ -1,5 +1,10 @@
 /**
  * Hook for subscription status
+ * 
+ * OFFLINE-SAFE:
+ * - Uses cached subscription data when offline
+ * - Only fetches when online
+ * - Never shows "trial ended" when offline
  */
 
 import { useAuth } from '@/context/AuthContext';
@@ -11,6 +16,7 @@ import { supabase } from '../supabase/client';
 import { enforcePlanLimitAfterCreate } from '../supabase/mutations/enforcePlanLimits';
 import { useActiveOwner } from './useActiveOwner';
 import { useProfile } from './useProfile';
+import { useNetworkStatus } from './useNetworkStatus';
 
 const SUBSCRIPTION_CACHE_KEY = 'subscription_cache';
 
@@ -18,6 +24,7 @@ export function useSubscription() {
   const { activeOwnerId, loading: ownerLoading } = useActiveOwner();
   const { user } = useAuth();
   const { profile, loading: profileLoading } = useProfile();
+  const { isOnline } = useNetworkStatus();
 
   // Initialize with a default 'free' plan so we never show "Loading..."
   // IMPORTANT: canAddItems starts as false until we verify actual item count
@@ -79,6 +86,14 @@ export function useSubscription() {
       return;
     }
 
+    // OFFLINE-SAFE: Don't fetch if offline, use cache
+    if (!isOnline) {
+      console.log('[useSubscription] Offline - using cached subscription data');
+      setLoading(false);
+      setError(null); // Clear any error state
+      return;
+    }
+
     const fetchSubscription = async () => {
       try {
         // Never show loading - always update silently in background
@@ -93,22 +108,9 @@ export function useSubscription() {
           .single();
 
         if (ownerProfileError) {
-          console.warn('[useSubscription] Error fetching owner profile:', ownerProfileError);
-          // Fall back to current user's profile (backward compatibility)
-          const profileSubscriptionTier = profile?.subscription_tier || 'free';
-          const profileSubscriptionValidUntil = profile?.subscription_valid_until || null;
-          const accountCreatedAt = user.created_at || profile?.created_at || undefined;
-
-          const info = await checkSubscriptionStatus(
-            activeOwnerId,
-            profileSubscriptionTier,
-            accountCreatedAt,
-            profile?.subscription_tier || null,
-            profileSubscriptionValidUntil
-          );
-          setSubscription(info);
-          prevSubscriptionRef.current = info;
-          setLoading(false); // CRITICAL: Stop loading even on error fallback
+          console.warn('[useSubscription] Error fetching owner profile - using cached data');
+          // Don't proceed if we can't fetch - keep cached data
+          setLoading(false);
           return;
         }
 
@@ -179,15 +181,28 @@ export function useSubscription() {
           console.warn('[useSubscription] Failed to save cache:', cacheError);
         }
       } catch (err) {
-        setError(err as Error);
-        console.error('[useSubscription] Error fetching subscription:', err);
+        // Network errors when offline - keep cached data
+        const error = err as Error;
+        const errorMessage = error.message?.toLowerCase() || '';
+        const isNetworkIssue = 
+          errorMessage.includes('network') ||
+          errorMessage.includes('connection') ||
+          errorMessage.includes('fetch');
+        
+        if (isNetworkIssue) {
+          console.warn('[useSubscription] Network error - keeping cached subscription');
+          // Don't set error - keep cached state
+        } else {
+          console.error('[useSubscription] Error fetching subscription:', err);
+          setError(err as Error);
+        }
       } finally {
         setLoading(false);
       }
     };
 
     fetchSubscription();
-  }, [activeOwnerId, ownerLoading, user]);
+  }, [activeOwnerId, ownerLoading, user, isOnline]);
 
   // Derive clear precedence flags
   const isProPlus = subscription?.plan === 'pro_plus' && subscription?.isPaidActive;
@@ -201,6 +216,12 @@ export function useSubscription() {
   const refresh = useCallback(async () => {
     if (!activeOwnerId || !user) return;
     
+    // Don't refresh if offline
+    if (!isOnline) {
+      console.log('[useSubscription] Offline - skipping refresh');
+      return;
+    }
+    
     try {
       // CRITICAL: Fetch the OWNER's profile, not the current user's profile!
       const { data: ownerProfile, error: ownerProfileError } = await supabase
@@ -210,7 +231,7 @@ export function useSubscription() {
         .single();
 
       if (ownerProfileError) {
-        console.warn('[useSubscription] Error fetching owner profile in refresh:', ownerProfileError);
+        console.warn('[useSubscription] Error fetching owner profile in refresh - keeping cached data');
         return;
       }
 
@@ -242,9 +263,20 @@ export function useSubscription() {
         console.warn('[useSubscription] Failed to cache subscription:', cacheError);
       }
     } catch (error) {
-      console.error('[useSubscription] Error refreshing subscription:', error);
+      const err = error as Error;
+      const errorMessage = err.message?.toLowerCase() || '';
+      const isNetworkIssue = 
+        errorMessage.includes('network') ||
+        errorMessage.includes('connection') ||
+        errorMessage.includes('fetch');
+      
+      if (isNetworkIssue) {
+        console.warn('[useSubscription] Network error during refresh - keeping cached data');
+      } else {
+        console.error('[useSubscription] Error refreshing subscription:', error);
+      }
     }
-  }, [activeOwnerId, user]);
+  }, [activeOwnerId, user, isOnline]);
 
   return {
     subscription,
