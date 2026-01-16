@@ -6,7 +6,7 @@
  * Offline-safe: Only fetches when online, uses cache when offline
  */
 
-import { useQuery, type UseQueryResult } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type UseQueryResult, type QueryClient } from '@tanstack/react-query';
 import type { ItemWithDetails } from '@/lib/supabase/queries/items';
 import {
   getAllItems,
@@ -102,23 +102,78 @@ export function useItemsQuery({
 }
 
 /**
+ * Search TanStack Query cache for an item across all cached queries
+ * Useful for offline-first detail views
+ */
+function findItemInCache(
+  queryClient: QueryClient,
+  ownerId: string,
+  itemId: string
+): ItemWithDetails | undefined {
+  const queryCache = queryClient.getQueryCache();
+  const allQueries = queryCache.getAll();
+  
+  // Search through all cached queries that match ['items', ownerId, ...]
+  for (const query of allQueries) {
+    const queryKey = query.queryKey;
+    
+    // Check if this is an items query for this owner
+    if (
+      Array.isArray(queryKey) &&
+      queryKey[0] === 'items' &&
+      queryKey[1] === ownerId
+    ) {
+      const cachedData = query.state.data as ItemWithDetails[] | undefined;
+      
+      if (Array.isArray(cachedData)) {
+        const item = cachedData.find((i) => i.id === itemId);
+        if (item) {
+          console.log('[findItemInCache] Found item in cache:', {
+            itemId,
+            queryKey,
+            itemName: item.product_name,
+          });
+          return item;
+        }
+      }
+    }
+  }
+  
+  console.log('[findItemInCache] Item not found in any cached query');
+  return undefined;
+}
+
+/**
  * Hook for querying single item detail
+ * 
+ * OFFLINE-FIRST:
+ * - Attempts to serve from cache if available (even when offline)
+ * - Only fetches from network when online
+ * - Gracefully handles offline cache miss
  */
 export function useItemQuery(ownerId: string | undefined, itemId: string | undefined) {
   const { isOnline } = useNetworkStatus();
+  const queryClient = useQueryClient();
   
   return useQuery({
     queryKey: itemsKeys.detail(ownerId || 'none', itemId || 'none'),
     queryFn: async () => {
       if (!ownerId || !itemId) throw new Error('Owner ID and Item ID are required');
       
-      // For now, fetch from list cache (future: add API endpoint for single item)
+      // Network fetch (requires online)
       const items = await getAllItems(ownerId);
       const item = items.find((i) => i.id === itemId);
       if (!item) throw new Error('Item not found');
       return item;
     },
-    // OFFLINE-SAFE: Only fetch when online
+    
+    // Serve from cache if available (works offline)
+    initialData: () => {
+      if (!ownerId || !itemId) return undefined;
+      return findItemInCache(queryClient, ownerId, itemId);
+    },
+    
+    // Only fetch when online AND (no cache OR data is stale)
     enabled: !!ownerId && !!itemId && isOnline,
     
     // Shorter stale time for detail views (more likely to be edited)

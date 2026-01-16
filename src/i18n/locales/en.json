@@ -232,6 +232,8 @@
     "retry": "Retry",
     "offline": "Working offline",
     "networkError": "Network error - check your connection",
+    "offlineUnavailable": "Item not available offline",
+    "connectToView": "Connect to the internet to view this item",
     "save": "Save",
     "cancel": "Cancel",
     "confirm": "Confirm",
