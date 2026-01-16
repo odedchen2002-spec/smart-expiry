@@ -283,7 +283,16 @@ export async function getExpiredItems(ownerId: string): Promise<ItemWithDetails[
     .range(0, 49999); // Use range instead of limit to bypass PostgREST 1000 limit
 
   if (error) {
-    console.error('Error fetching expired items:', error);
+    // Only log non-network errors (network errors are expected when offline)
+    const errorMessage = error.message?.toLowerCase() || '';
+    const isNetworkError = 
+      errorMessage.includes('network') ||
+      errorMessage.includes('connection') ||
+      errorMessage.includes('fetch');
+    
+    if (!isNetworkError) {
+      console.error('[items] Error fetching expired items:', error);
+    }
     throw error;
   }
 

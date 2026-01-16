@@ -27,7 +27,16 @@ export async function enforcePlanLimitAfterCreate(ownerId: string) {
         });
 
         if (error) {
-            console.error('[enforcePlanLimit] Error calling enforce_plan_limits:', error);
+            // Only log non-network errors (network errors are expected when offline)
+            const errorMessage = error.message?.toLowerCase() || '';
+            const isNetworkError = 
+              errorMessage.includes('network') ||
+              errorMessage.includes('connection') ||
+              errorMessage.includes('fetch');
+            
+            if (!isNetworkError) {
+              console.error('[enforcePlanLimit] Error calling enforce_plan_limits:', error);
+            }
             return;
         }
 

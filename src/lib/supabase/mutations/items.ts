@@ -309,7 +309,16 @@ export async function deleteExpiredItemsByRetention(
       .neq('status', 'resolved'); // Don't delete already resolved items
 
     if (fetchError) {
-      console.error('Error fetching expired items for deletion:', fetchError);
+      // Only log non-network errors (network errors are expected when offline)
+      const errorMessage = fetchError.message?.toLowerCase() || '';
+      const isNetworkError = 
+        errorMessage.includes('network') ||
+        errorMessage.includes('connection') ||
+        errorMessage.includes('fetch');
+      
+      if (!isNetworkError) {
+        console.error('[items] Error fetching expired items for deletion:', fetchError);
+      }
       throw fetchError;
     }
 
