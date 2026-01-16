@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/images/logo.png",
       "resizeMode": "contain",
-      "backgroundColor": "#5B9FED"
+      "backgroundColor": "#1060F4"
     },
     "ios": {
       "supportsTablet": true,
@@ -30,7 +30,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/logo.png",
-        "backgroundColor": "#5B9FED"
+        "backgroundColor": "#1060F4"
       },
       "icon": "./assets/images/logo.png",
       "edgeToEdgeEnabled": true,
@@ -40,7 +40,7 @@
     },
     "notification": {
       "icon": "./assets/images/logo.png",
-      "color": "#5B9FED",
+      "color": "#1C7EF6",
       "androidCollapsedTitle": "Smart Expiry",
       "iosDisplayInForeground": true
     },
@@ -70,7 +70,7 @@
         "expo-notifications",
         {
           "icon": "./assets/images/logo.png",
-          "color": "#5B9FED",
+          "color": "#1C7EF6",
           "sounds": []
         }
       ]

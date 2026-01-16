@@ -68,9 +68,9 @@ export function SplashScreen() {
     <View style={styles.container}>
       {/* Gradient background */}
       <LinearGradient
-        colors={['#F8FAFC', '#EEF2FF', '#E0E7FF']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
+        colors={['#1C7EF6', '#1060F4']}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
 
@@ -129,7 +129,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#1C7EF6',
   },
   
   // Decorative background elements
@@ -140,7 +140,7 @@ const styles = StyleSheet.create({
     width: 300,
     height: 300,
     borderRadius: 150,
-    backgroundColor: 'rgba(99, 102, 241, 0.08)',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
   decorativeCircle2: {
     position: 'absolute',
@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
     width: 250,
     height: 250,
     borderRadius: 125,
-    backgroundColor: 'rgba(139, 92, 246, 0.06)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
 
   // Logo styling
@@ -163,12 +163,12 @@ const styles = StyleSheet.create({
     width: 180,
     height: 180,
     borderRadius: 90,
-    backgroundColor: 'rgba(99, 102, 241, 0.12)',
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     ...Platform.select({
       ios: {
-        shadowColor: '#6366F1',
+        shadowColor: '#FFFFFF',
         shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.3,
+        shadowOpacity: 0.4,
         shadowRadius: 30,
       },
       android: {
@@ -189,14 +189,14 @@ const styles = StyleSheet.create({
   appName: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#1F2937',
+    color: '#FFFFFF',
     letterSpacing: 0.5,
     marginBottom: 6,
   },
   tagline: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#6B7280',
+    color: 'rgba(255, 255, 255, 0.9)',
     letterSpacing: 0.3,
   },
 
@@ -214,6 +214,6 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#6366F1',
+    backgroundColor: '#FFFFFF',
   },
 });
