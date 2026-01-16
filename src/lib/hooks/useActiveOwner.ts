@@ -102,7 +102,16 @@ export function useActiveOwner() {
               .maybeSingle();
 
             if (profileError) {
-              console.error('Error fetching current profile:', profileError);
+              // Only log non-network errors (network errors are expected when offline)
+              const errorMessage = profileError.message?.toLowerCase() || '';
+              const isNetworkError = 
+                errorMessage.includes('network') ||
+                errorMessage.includes('connection') ||
+                errorMessage.includes('fetch');
+              
+              if (!isNetworkError) {
+                console.error('[useActiveOwner] Error fetching current profile:', profileError);
+              }
               return;
             }
 
@@ -232,7 +241,16 @@ export function useActiveOwner() {
           setLoading(false);
           return;
         }
-        console.error('Error fetching current profile:', profileError);
+        // Only log non-network errors (network errors are expected when offline)
+        const errorMessage = profileError.message?.toLowerCase() || '';
+        const isNonNetworkError = 
+          !errorMessage.includes('network') &&
+          !errorMessage.includes('connection') &&
+          !errorMessage.includes('fetch');
+        
+        if (isNonNetworkError) {
+          console.error('[useActiveOwner] Error fetching current profile:', profileError);
+        }
         setError(profileError as Error);
         return;
       }

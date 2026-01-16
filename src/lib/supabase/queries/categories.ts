@@ -22,7 +22,16 @@ export async function getCategories(ownerId: string): Promise<string[]> {
     .range(0, 9999); // Support up to 10,000 products per owner
 
   if (error) {
-    console.error('Error fetching categories:', error);
+    // Only log non-network errors (network errors are expected when offline)
+    const errorMessage = error.message?.toLowerCase() || '';
+    const isNetworkError = 
+      errorMessage.includes('network') ||
+      errorMessage.includes('connection') ||
+      errorMessage.includes('fetch');
+    
+    if (!isNetworkError) {
+      console.error('[categories] Error fetching categories:', error);
+    }
     return [];
   }
 
