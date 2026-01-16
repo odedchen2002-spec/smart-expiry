@@ -145,7 +145,16 @@ export async function getProductsByCategory(
     .range(0, 49999); // Support up to 50,000 items per owner
 
   if (itemsError) {
-    console.error('Error fetching items:', itemsError);
+    // Only log non-network errors (network errors are expected when offline)
+    const errorMessage = itemsError.message?.toLowerCase() || '';
+    const isNetworkError = 
+      errorMessage.includes('network') ||
+      errorMessage.includes('connection') ||
+      errorMessage.includes('fetch');
+    
+    if (!isNetworkError) {
+      console.error('[categories] Error fetching items:', itemsError);
+    }
     return [];
   }
 
@@ -193,7 +202,16 @@ export async function getProductsNotInCategory(
     .range(0, 49999); // Support up to 50,000 items per owner
 
   if (itemsError) {
-    console.error('Error fetching items:', itemsError);
+    // Only log non-network errors (network errors are expected when offline)
+    const errorMessage = itemsError.message?.toLowerCase() || '';
+    const isNetworkError = 
+      errorMessage.includes('network') ||
+      errorMessage.includes('connection') ||
+      errorMessage.includes('fetch');
+    
+    if (!isNetworkError) {
+      console.error('[categories] Error fetching items:', itemsError);
+    }
     return [];
   }
 

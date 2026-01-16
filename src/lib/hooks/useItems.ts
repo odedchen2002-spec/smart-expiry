@@ -469,13 +469,18 @@ export function useItems({ scope, ownerId, autoFetch = true }: UseItemsOptions) 
           // Don't fail the main fetch if cache update fails
         });
     } catch (err) {
-      console.error('useItems: Error fetching items:', err);
-
       // Check if it's a network error - if so, fall back to cache
       const errorMessage = (err as Error)?.message || '';
       const isNetworkError = errorMessage.includes('Network request failed') ||
         errorMessage.includes('Failed to fetch') ||
         errorMessage.includes('network');
+      
+      // Only log non-network errors (network errors are expected when offline)
+      if (!isNetworkError) {
+        console.error('[useItems] Error fetching items:', err);
+      } else {
+        console.log('[useItems] Network error (offline), using cached data');
+      }
 
       if (isNetworkError && skipCache) {
         // We tried to skip cache but network failed - fall back to cache

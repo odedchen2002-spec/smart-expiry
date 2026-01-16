@@ -1,6 +1,7 @@
 import { useAuth } from '@/context/AuthContext';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
 import { useProfile } from '@/lib/hooks/useProfile';
+import { useNetworkStatus } from '@/lib/hooks/useNetworkStatus';
 import { checkSubscriptionStatus } from '@/lib/subscription/subscription';
 import { deleteExpiredItemsByRetention } from '@/lib/supabase/mutations/items';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -29,6 +30,7 @@ export default function Index() {
   const { user, loading: authLoading, status, isRecoveryFlow, needsProfileCompletion, isProfileLoaded, isProfileComplete } = useAuth();
   const { activeOwnerId, isOwner, loading: ownerLoading } = useActiveOwner();
   const { profile, loading: profileLoading } = useProfile();
+  const { isOnline } = useNetworkStatus();
   const [subscriptionExpired, setSubscriptionExpired] = useState(false);
   const [checkingOnboarding, setCheckingOnboarding] = useState(false);
   const [shouldShowOnboarding, setShouldShowOnboarding] = useState(false);
@@ -48,10 +50,19 @@ export default function Index() {
 
   // Subscription check - NON-BLOCKING: runs in background after initial navigation
   // This doesn't block app startup - user goes to Home first, then gets redirected if expired
+  // OFFLINE-SAFE: Only check when online, never show expired dialog when offline
   useEffect(() => {
     const checkSubscription = async () => {
       // Only check subscription for owners, not collaborators
       if (!activeOwnerId || !isOwner || !user) return;
+      
+      // OFFLINE-SAFE: Don't check subscription when offline
+      // If offline, assume subscription is valid (use cached state)
+      if (!isOnline) {
+        console.log('[Index] Offline - skipping subscription check, allowing access');
+        setSubscriptionExpired(false);
+        return;
+      }
       
       try {
         perfLog('Subscription check start', startTimeRef.current);
@@ -67,11 +78,23 @@ export default function Index() {
         );
         perfLog('Subscription check done', startTimeRef.current);
         // Only block access if subscription is expired (paid plan that expired)
+        // AND we're online (confirmed state)
         // Free plan users can always access the app
-        setSubscriptionExpired(subscription.status === 'expired');
+        setSubscriptionExpired(subscription.status === 'expired' && isOnline);
       } catch (error) {
-        console.error('Error checking subscription:', error);
-        // Don't block access if subscription check fails
+        const err = error as Error;
+        const errorMessage = err.message?.toLowerCase() || '';
+        const isNetworkError = 
+          errorMessage.includes('network') ||
+          errorMessage.includes('connection') ||
+          errorMessage.includes('fetch');
+        
+        if (isNetworkError) {
+          console.log('[Index] Network error checking subscription - allowing access (offline)');
+        } else {
+          console.error('[Index] Error checking subscription:', error);
+        }
+        // Don't block access if subscription check fails or network error
         setSubscriptionExpired(false);
       }
     };
@@ -79,7 +102,7 @@ export default function Index() {
     // Run subscription check after a small delay so it doesn't block initial render
     const timeoutId = setTimeout(checkSubscription, 100);
     return () => clearTimeout(timeoutId);
-  }, [activeOwnerId, isOwner, user, profile]);
+  }, [activeOwnerId, isOwner, user, profile, isOnline]);
 
   // No business creation needed - users are owners by default
   // useActiveOwner hook handles determining if user is owner or collaborator

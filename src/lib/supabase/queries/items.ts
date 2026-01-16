@@ -51,7 +51,16 @@ export async function getItems(options: ItemsQueryOptions): Promise<ItemWithDeta
   const { data, error } = await query;
 
   if (error) {
-    console.error('Error fetching items:', error);
+    // Only log non-network errors (network errors are expected when offline)
+    const errorMessage = error.message?.toLowerCase() || '';
+    const isNetworkError = 
+      errorMessage.includes('network') ||
+      errorMessage.includes('connection') ||
+      errorMessage.includes('fetch');
+    
+    if (!isNetworkError) {
+      console.error('[items] Error fetching items:', error);
+    }
     throw error;
   }
 
@@ -163,7 +172,16 @@ export async function getAllItems(ownerId: string) {
       .range(offset, offset + CHUNK_SIZE - 1);
 
     if (chunkError) {
-      console.error('Error fetching items chunk:', chunkError);
+      // Only log non-network errors (network errors are expected when offline)
+      const errorMessage = chunkError.message?.toLowerCase() || '';
+      const isNetworkError = 
+        errorMessage.includes('network') ||
+        errorMessage.includes('connection') ||
+        errorMessage.includes('fetch');
+      
+      if (!isNetworkError) {
+        console.error('[items] Error fetching items chunk:', chunkError);
+      }
       throw chunkError;
     }
 
