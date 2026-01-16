@@ -191,14 +191,17 @@ function PlanLimitEnforcement() {
           AsyncStorage.setItem('plan_limits_changed', Date.now().toString());
         });
       } catch (error) {
-        // Only log non-network errors (network errors are expected when offline)
+        // Only log non-network/bundler errors (these are expected when offline/dev mode)
         const errorMessage = (error as Error).message?.toLowerCase() || '';
-        const isNetworkError = 
+        const errorName = (error as Error).name?.toLowerCase() || '';
+        const isExpectedError = 
           errorMessage.includes('network') ||
           errorMessage.includes('connection') ||
-          errorMessage.includes('fetch');
+          errorMessage.includes('fetch') ||
+          errorMessage.includes('could not load bundle') ||
+          errorName.includes('loadbundlefromserverrequesterror');
         
-        if (!isNetworkError) {
+        if (!isExpectedError) {
           console.error('[PlanLimit] Error enforcing plan limits (non-critical):', error);
         }
       }

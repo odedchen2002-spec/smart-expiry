@@ -27,14 +27,17 @@ export async function enforcePlanLimitAfterCreate(ownerId: string) {
         });
 
         if (error) {
-            // Only log non-network errors (network errors are expected when offline)
+            // Only log non-network/bundler errors (these are expected when offline/dev mode)
             const errorMessage = error.message?.toLowerCase() || '';
-            const isNetworkError = 
+            const errorName = (error as any).name?.toLowerCase() || '';
+            const isExpectedError = 
               errorMessage.includes('network') ||
               errorMessage.includes('connection') ||
-              errorMessage.includes('fetch');
+              errorMessage.includes('fetch') ||
+              errorMessage.includes('could not load bundle') ||
+              errorName.includes('loadbundlefromserverrequesterror');
             
-            if (!isNetworkError) {
+            if (!isExpectedError) {
               console.error('[enforcePlanLimit] Error calling enforce_plan_limits:', error);
             }
             return;
