@@ -527,7 +527,16 @@ export default function AddScreen() {
             .neq('status', 'resolved');
           
           if (error) {
-            console.error('[Add] Background: Error checking item count:', error);
+            // Only log non-network errors (network errors are expected when offline)
+            const errorMessage = error.message?.toLowerCase() || '';
+            const isNetworkError = 
+              errorMessage.includes('network') ||
+              errorMessage.includes('connection') ||
+              errorMessage.includes('fetch');
+            
+            if (!isNetworkError) {
+              console.error('[Add] Background: Error checking item count:', error);
+            }
             return; // Silent fail - don't block user
           }
           

@@ -578,7 +578,16 @@ export function useItems({ scope, ownerId, autoFetch = true }: UseItemsOptions) 
             if (unlockError.code === '40P01') {
               console.warn('[useItems] Deadlock while unlocking items in DB (UI is correct, skipping)');
             } else {
-              console.error('[useItems] Error unlocking items in DB:', unlockError);
+              // Only log non-network errors (network errors are expected when offline)
+              const errorMessage = unlockError.message?.toLowerCase() || '';
+              const isNetworkError = 
+                errorMessage.includes('network') ||
+                errorMessage.includes('connection') ||
+                errorMessage.includes('fetch');
+              
+              if (!isNetworkError) {
+                console.error('[useItems] Error unlocking items in DB:', unlockError);
+              }
             }
           } else {
             logSubscription('[useItems] Successfully unlocked all items in DB for Pro Plus user');
@@ -591,7 +600,16 @@ export function useItems({ scope, ownerId, autoFetch = true }: UseItemsOptions) 
           // Refetch fresh data from DB (skip cache) to ensure this instance has latest data
           fetchItems(ownerId, true);
         } catch (unlockEx) {
-          console.error('[useItems] Exception while unlocking items in DB:', unlockEx);
+          // Only log non-network errors (network errors are expected when offline)
+          const errorMessage = (unlockEx as Error).message?.toLowerCase() || '';
+          const isNetworkError = 
+            errorMessage.includes('network') ||
+            errorMessage.includes('connection') ||
+            errorMessage.includes('fetch');
+          
+          if (!isNetworkError) {
+            console.error('[useItems] Exception while unlocking items in DB:', unlockEx);
+          }
         } finally {
           isUnlockingInProgress = false;
         }

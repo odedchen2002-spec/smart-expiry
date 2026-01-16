@@ -200,8 +200,11 @@ export async function getProfile(
           continue;
         }
         
-        // Non-network error or out of retries - throw immediately
-        console.error('Error fetching profile:', error);
+        // Non-network error or out of retries
+        // Only log non-network errors (network errors are expected when offline)
+        if (!isNetworkError(error)) {
+          console.error('[profiles] Error fetching profile:', error);
+        }
         throw error;
       }
 
@@ -222,7 +225,10 @@ export async function getProfile(
   
   // If we exhausted all retries, throw the last error
   if (lastError) {
-    console.error('Error fetching profile after retries:', lastError);
+    // Only log non-network errors (network errors are expected when offline)
+    if (!isNetworkError(lastError)) {
+      console.error('[profiles] Error fetching profile after retries:', lastError);
+    }
     throw lastError;
   }
   
