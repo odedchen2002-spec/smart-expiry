@@ -1,8 +1,8 @@
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo, useCallback, useState, useRef } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { IconButton, Snackbar, Text } from 'react-native-paper';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useLanguage } from '@/context/LanguageContext';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
 import { useItemsQuery } from '@/hooks/queries/useItemsQuery';
@@ -52,6 +52,7 @@ export default function ExpiredScreen() {
   
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const isInitialMountRef = useRef(true); // Track initial mount for focus effect
 
   // Filter items based on search query
   const filteredItems = useMemo(() => {
@@ -88,6 +89,24 @@ export default function ExpiredScreen() {
     await refetch();
     setRefreshing(false);
   };
+
+  // Auto-refresh when screen comes into focus (to update newly expired items)
+  // This ensures items that just expired show up immediately
+  useFocusEffect(
+    useCallback(() => {
+      // Skip initial mount (data already loaded)
+      if (isInitialMountRef.current) {
+        isInitialMountRef.current = false;
+        return;
+      }
+
+      // Only refetch if we have an owner
+      if (activeOwnerId) {
+        console.log('[Expired Screen] Screen focused - refreshing data to catch newly expired items');
+        refetch();
+      }
+    }, [activeOwnerId, refetch])
+  );
 
   // Handle sold/finished action
   const handleSoldFinished = useCallback(async (item: Item) => {

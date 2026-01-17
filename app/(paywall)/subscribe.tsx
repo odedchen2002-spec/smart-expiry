@@ -337,11 +337,8 @@ export default function SubscribeScreen() {
                 selectedPlan === 'pro' && styles.selectedCardPro,
                 isCurrentPlan('pro') && styles.currentPlanCard,
               ]}
-              onPress={() => !isCurrentPlan('pro') && setSelectedPlan('pro')}
+              onPress={() => setSelectedPlan('pro')}
             >
-              {/* Top Border */}
-              <View style={styles.proTopBorder} />
-              
               {/* Badge */}
               {!isCurrentPlan('pro') && (
                 <View style={styles.recommendedBadge}>
@@ -433,7 +430,7 @@ export default function SubscribeScreen() {
                 selectedPlan === 'pro_plus' && styles.selectedCardProPlus,
                 isCurrentPlan('pro_plus') && styles.currentPlanCard,
               ]}
-              onPress={() => !isCurrentPlan('pro_plus') && setSelectedPlan('pro_plus')}
+              onPress={() => setSelectedPlan('pro_plus')}
             >
               {/* Gold Badge */}
               {!isCurrentPlan('pro_plus') && (
@@ -669,11 +666,11 @@ function createStyles(isRTL: boolean) {
     planCard: {
       borderRadius: 16,
       backgroundColor: '#FFFFFF',
-      overflow: 'visible',
+      overflow: 'hidden', // Ensure badge doesn't cover border
     },
     // Pro Card (Blue)
     proCard: {
-      borderWidth: 0,
+      borderWidth: 0, // No border by default
       ...Platform.select({
         ios: {
           shadowColor: '#007AFF',
@@ -685,17 +682,6 @@ function createStyles(isRTL: boolean) {
           elevation: 5,
         },
       }),
-    },
-    proTopBorder: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      height: 4,
-      backgroundColor: '#007AFF',
-      borderTopLeftRadius: 16,
-      borderTopRightRadius: 16,
-      zIndex: 1,
     },
     recommendedBadge: {
       position: 'absolute',
@@ -714,8 +700,7 @@ function createStyles(isRTL: boolean) {
     },
     // Pro+ Card (Purple)
     proPlusCard: {
-      borderWidth: 2,
-      borderColor: '#6d28d9',
+      borderWidth: 0, // No border by default - only when selected
       ...Platform.select({
         ios: {
           shadowColor: '#6d28d9',

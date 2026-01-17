@@ -16,6 +16,7 @@
  */
 
 import { useLanguage } from '@/context/LanguageContext';
+import { useCacheReady } from '@/context/CacheContext';
 import { THEME_COLORS } from '@/lib/constants/colors';
 import { itemEvents } from '@/lib/events/itemEvents';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
@@ -552,20 +553,24 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { hasNew, markSeen } = useNotificationBadge();
   const { activeOwnerId, isViewer } = useActiveOwner();
+  const { cachedOwnerId } = useCacheReady(); // Get cached owner ID for instant display
   const { isEnabled: notificationsEnabled, isLoading: isLoadingPermission, requestOrOpenSettings } = useNotificationPermission();
 
   const [refreshing, setRefreshing] = useState(false);
 
+  // Use activeOwnerId if available, otherwise fall back to cachedOwnerId for instant cache display
+  // This prevents flickering when activeOwnerId is still loading but we have cached data
+  const ownerIdForStats = activeOwnerId || cachedOwnerId;
+
   // Use stale-while-revalidate stats hook
   const { stats, isLoading: isLoadingFromHook, hasCache, refetch, lastFetchTime } = useHomeStats({
-    ownerId: activeOwnerId,
-    autoFetch: !!activeOwnerId,
+    ownerId: ownerIdForStats,
+    autoFetch: !!activeOwnerId, // Only auto-fetch when activeOwnerId is ready
   });
 
-  // Show loading state when:
-  // 1. activeOwnerId is not yet available (user still loading)
-  // 2. OR the hook says it's loading (no cache and fetching)
-  const isLoadingStats = !activeOwnerId || isLoadingFromHook;
+  // Show loading state ONLY when the hook says it's loading (no cache and fetching)
+  // This ensures cached data shows instantly, even if activeOwnerId is still loading
+  const isLoadingStats = isLoadingFromHook;
 
   // Alias stats for cleaner template usage
   const counts = stats;

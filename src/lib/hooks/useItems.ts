@@ -16,6 +16,7 @@ import {
   getItemsExpiringTomorrow
 } from '../supabase/queries/items';
 import { useSubscription } from './useSubscription';
+import { useNetworkStatus } from './useNetworkStatus';
 
 type ItemWithDetails = Database['public']['Views']['items_with_details']['Row'];
 
@@ -34,6 +35,7 @@ interface UseItemsOptions {
 export function useItems({ scope, ownerId, autoFetch = true }: UseItemsOptions) {
   const { user } = useAuth();
   const { subscription, isPro, isFreeTrialActive } = useSubscription();
+  const { isOnline } = useNetworkStatus();
   const [allItems, setAllItems] = useState<ItemWithDetails[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -362,6 +364,7 @@ export function useItems({ scope, ownerId, autoFetch = true }: UseItemsOptions) 
     const currentIsPro = isProRef.current;
 
     // Step 1: Try to load from cache first (unless skipCache is true)
+    let hasCachedData = false;
     if (!skipCache) {
       try {
         const cached = await loadItemsFromCache(oid);
@@ -382,6 +385,7 @@ export function useItems({ scope, ownerId, autoFetch = true }: UseItemsOptions) 
           setFromCache(true);
           setLoading(false); // UI can render immediately with cached data
           hasInitialFetchRef.current = true;
+          hasCachedData = true;
         } else if (!hasInitialFetchRef.current) {
           // Only show loading if we haven't fetched before
           setLoading(true);
@@ -396,7 +400,15 @@ export function useItems({ scope, ownerId, autoFetch = true }: UseItemsOptions) 
       setLoading(true);
     }
 
-    // Step 2: Fetch fresh data from Supabase
+    // OFFLINE MODE: If we're offline and have cached data, stop here
+    // Don't try to fetch from Supabase - it will fail and cause delay
+    if (!isOnline && hasCachedData) {
+      console.log('[useItems] Offline mode - using cached data only');
+      fetchingRef.current = false;
+      return;
+    }
+
+    // Step 2: Fetch fresh data from Supabase (only when online OR no cache)
     try {
       let data: ItemWithDetails[] = [];
 
@@ -526,6 +538,21 @@ export function useItems({ scope, ownerId, autoFetch = true }: UseItemsOptions) 
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoFetch, ownerId]);
+
+  // Refetch when coming back online (if we have cached data)
+  const prevIsOnlineRef = useRef(isOnline);
+  useEffect(() => {
+    const wasOffline = !prevIsOnlineRef.current;
+    const isNowOnline = isOnline;
+
+    // If we just came back online, refetch to get fresh data
+    if (wasOffline && isNowOnline && ownerId && fromCache) {
+      console.log('[useItems] Network reconnected - fetching fresh data');
+      fetchItems(ownerId, true); // Skip cache to get fresh data
+    }
+
+    prevIsOnlineRef.current = isOnline;
+  }, [isOnline, ownerId, fromCache, fetchItems]);
 
   // Create a subscription key that changes when subscription status changes
   // This ensures the effect triggers when subscription becomes Pro

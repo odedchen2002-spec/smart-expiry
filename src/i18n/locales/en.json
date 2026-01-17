@@ -1273,7 +1273,9 @@
     "matchedSupplierItem": "Matched supplier item",
     "nameSaved": "Name saved",
     "dateUpdated": "Date updated",
-    "distanceHint": "15-25 cm from barcode"
+    "distanceHint": "15-25 cm from barcode",
+    "tapToFocus": "Tap screen to refocus",
+    "closeUpHint": "For very close barcodes - tap multiple times"
   },
   "sharedWithMe": {
     "title": "Shares sent to me",

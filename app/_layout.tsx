@@ -255,7 +255,7 @@ function IAPInitialization() {
     return () => {
       subscription.remove();
       disconnectIAP();
-      cleanupOfflineQueue();
+      // Offline operations now handled by Outbox pattern in QueryProvider
     };
   }, []);
 

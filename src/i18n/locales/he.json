@@ -1312,7 +1312,9 @@
     "matchedSupplierItem": "הותאם לסחורה מהספק",
     "nameSaved": "השם נשמר",
     "dateUpdated": "התאריך עודכן",
-    "distanceHint": "15-25 ס״מ מהברקוד"
+    "distanceHint": "15-25 ס״מ מהברקוד",
+    "tapToFocus": "לחץ על המסך למיקוד מחדש",
+    "closeUpHint": "לברקודים קרובים מאוד - לחץ מספר פעמים"
   },
   "onboarding": {
     "welcome": {

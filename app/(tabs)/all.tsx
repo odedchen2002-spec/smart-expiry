@@ -6,6 +6,7 @@ import { TrialEndedDialog } from '@/components/subscription/TrialEndedDialog';
 import { TrialReminderDialog } from '@/components/subscription/TrialReminderDialog';
 import { UpgradeBanner } from '@/components/subscription/UpgradeBanner';
 import { useLanguage } from '@/context/LanguageContext';
+import { useDatePickerStyleContext } from '@/context/DatePickerStyleContext';
 import { THEME_COLORS } from '@/lib/constants/colors';
 import { useActiveOwner } from '@/lib/hooks/useActiveOwner';
 import { useNotificationBadge } from '@/lib/hooks/useNotificationBadge';
@@ -21,9 +22,9 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { differenceInDays, parseISO } from 'date-fns';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Dimensions, Modal, Platform, ScrollView, StyleSheet, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
+import { Dimensions, Modal, Platform, ScrollView, StyleSheet, TouchableOpacity, TouchableWithoutFeedback, View, KeyboardAvoidingView, useWindowDimensions } from 'react-native';
 import { Button, Chip, IconButton, Surface, Text, Snackbar } from 'react-native-paper';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -42,8 +43,9 @@ export default function AllScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ daysAhead?: string }>();
   const { t, isRTL } = useLanguage();
+  const { datePickerStyle } = useDatePickerStyleContext();
   const insets = useSafeAreaInsets();
-  const screenHeight = Dimensions.get('window').height;
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const { activeOwnerId, loading: ownerLoading } = useActiveOwner();
   const { hasNew, markSeen } = useNotificationBadge();
   
@@ -85,6 +87,7 @@ export default function AllScreen() {
   const [lastAction, setLastAction] = useState<LastAction | null>(null);
   const undoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isNavigatingToProductRef = useRef(false); // Track internal navigation (to product details)
+  const isInitialMountRef = useRef(true); // Track initial mount for focus effect
 
   // Track if filter was set from navigation params (for display label)
   const [filterFromNav, setFilterFromNav] = useState<'today' | 'week' | null>(null);
@@ -147,6 +150,7 @@ export default function AllScreen() {
     const seenIds = new Set<string>();
     const duplicates = new Set<string>();
     filtered = filtered.filter((item) => {
+      if (!item.id) return false; // Skip items without ID
       if (seenIds.has(item.id)) {
         duplicates.add(item.id);
         return false;
@@ -217,6 +221,15 @@ export default function AllScreen() {
     setStartDate(tempStartDate);
     setEndDate(tempEndDate);
     setCategoryFilter(tempCategoryFilter);
+    setShowStartDatePicker(false);
+    setShowEndDatePicker(false);
+    setFilterMenuVisible(false);
+  };
+
+  // Close filter modal with cleanup
+  const handleCloseFilterModal = () => {
+    setShowStartDatePicker(false);
+    setShowEndDatePicker(false);
     setFilterMenuVisible(false);
   };
 
@@ -229,6 +242,8 @@ export default function AllScreen() {
     setEndDate(null);
     setCategoryFilter(null);
     setFilterFromNav(null);
+    setShowStartDatePicker(false);
+    setShowEndDatePicker(false);
     setFilterMenuVisible(false);
     // Clear the route params by navigating to same screen without params
     router.setParams({ daysAhead: undefined } as any);
@@ -243,6 +258,35 @@ export default function AllScreen() {
     await refetch();
     setRefreshing(false);
   };
+
+  // Auto-refresh when screen comes into focus (to update expired items status)
+  // This ensures items that expired since last view show correctly
+  useFocusEffect(
+    useCallback(() => {
+      // Skip if this is navigation to product details (internal navigation)
+      if (isNavigatingToProductRef.current) {
+        isNavigatingToProductRef.current = false;
+        return;
+      }
+      
+      // Skip initial mount (data already loaded)
+      if (isInitialMountRef.current) {
+        isInitialMountRef.current = false;
+        return;
+      }
+
+      // Only refetch if we have an owner and items
+      if (activeOwnerId && items.length > 0) {
+        console.log('[All Screen] Screen focused - refreshing data to update expired items');
+        refetch();
+      }
+      
+      return () => {
+        // Cleanup - reset navigation flag
+        isNavigatingToProductRef.current = false;
+      };
+    }, [activeOwnerId, items.length, refetch])
+  );
 
   // Clear undo timeout
   const clearUndoTimeout = useCallback(() => {
@@ -287,7 +331,7 @@ export default function AllScreen() {
 
   // Handle sold/finished action
   const handleSoldFinished = useCallback(async (item: Item) => {
-    if (!activeOwnerId) return;
+    if (!activeOwnerId || !item.id) return;
 
     clearUndoTimeout();
 
@@ -319,14 +363,14 @@ export default function AllScreen() {
       // Log the event (fire-and-forget, no await)
       void logSoldFinished(
         activeOwnerId,
-        item.id,
+        item.id!,
         item.barcode_snapshot || item.product_barcode || undefined,
         item.product_name || undefined
       );
 
       // Update item to resolved via Outbox (local operation only)
       await updateItem({
-        itemId: item.id,
+        itemId: item.id!,
         updates: { status: 'resolved' as any, resolved_reason: 'sold' },
       });
 
@@ -341,15 +385,15 @@ export default function AllScreen() {
 
   // Handle delete action with optimistic UI + Outbox + Undo
   const handleDelete = useCallback(async (item: Item) => {
-    // Guard against missing owner
-    if (!activeOwnerId) return;
+    // Guard against missing owner or item ID
+    if (!activeOwnerId || !item.id) return;
 
     // Haptic feedback immediately
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
       // Delete via Outbox (soft-delete with undo)
-      const result = await deleteItem(item.id);
+      const result = await deleteItem(item.id!);
 
       // Show snackbar with undo (no manual timeout - managed by hook)
     setSnackbarMessage(t('item.deleted') || 'המוצר נמחק');
@@ -365,7 +409,7 @@ export default function AllScreen() {
     }
   }, [activeOwnerId, deleteItem, t]);
 
-  const styles = createStyles(isRTL);
+  const styles = createStyles(isRTL, insets, screenHeight, screenWidth, datePickerStyle);
   const rtlContainer = getRtlContainerStyles(isRTL);
 
   return (
@@ -500,208 +544,223 @@ export default function AllScreen() {
             visible={filterMenuVisible}
             transparent
             animationType="fade"
-            onRequestClose={() => setFilterMenuVisible(false)}
+            onRequestClose={handleCloseFilterModal}
           >
-            <TouchableWithoutFeedback onPress={() => setFilterMenuVisible(false)}>
-              <View style={styles.filterBackdrop}>
-                <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-                  <Surface style={styles.filterCard}>
-                    {/* Title Section */}
-                    <View style={styles.filterTitleSection}>
-                      <View style={styles.filterTitleIconContainer}>
-                        <MaterialCommunityIcons name="filter-variant" size={24} color={THEME_COLORS.primary} />
-                      </View>
-                      <Text style={styles.filterTitle}>
-                        {t('filters.title')}
-                      </Text>
-                    </View>
-                    <View style={styles.filterTitleDivider} />
-
-                    {/* CONTENT – date range filter */}
-                    <View style={styles.filterContentWrapper}>
-                      <View style={styles.filterSectionHeader}>
-                        <MaterialCommunityIcons name="calendar-range" size={18} color="#6B7280" style={styles.filterSectionIcon} />
-                        <Text style={styles.filterSectionTitle}>
-                          {t('filters.dateRange') || 'טווח תאריכים'}
+            <KeyboardAvoidingView 
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              style={{ flex: 1 }}
+            >
+              <TouchableWithoutFeedback onPress={handleCloseFilterModal}>
+                <View style={styles.filterBackdrop}>
+                  <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+                    <Surface style={styles.filterCard}>
+                      {/* Title Section */}
+                      <View style={styles.filterTitleSection}>
+                        <View style={styles.filterTitleIconContainer}>
+                          <MaterialCommunityIcons name="filter-variant" size={20} color={THEME_COLORS.primary} />
+                        </View>
+                        <Text style={styles.filterTitle}>
+                          {t('filters.title')}
                         </Text>
                       </View>
+                      <View style={styles.filterTitleDivider} />
 
-                      <View style={styles.datePickerContainer}>
-                        {/* Start Date - Hide when End Date picker is open */}
-                        {!showEndDatePicker && (
-                          <View style={styles.datePickerRow}>
-                            <Text style={styles.datePickerLabel}>
-                              :{t('filters.fromDate') || 'מתאריך'}
-                            </Text>
-                            <TouchableOpacity
-                              style={styles.datePickerButton}
-                              onPress={() => {
-                                setShowStartDatePicker(true);
-                                setShowEndDatePicker(false);
-                              }}
-                            >
-                              <MaterialCommunityIcons name="calendar" size={20} color={THEME_COLORS.primary} />
-                              <Text style={styles.datePickerButtonText}>
-                                {tempStartDate 
-                                  ? tempStartDate.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
-                                  : t('filters.selectDate') || 'בחר תאריך'}
+                      {/* CONTENT – date range filter - NOW SCROLLABLE */}
+                      <ScrollView 
+                        style={styles.filterContentScrollView}
+                        contentContainerStyle={styles.filterContentScrollViewContent}
+                        showsVerticalScrollIndicator={true}
+                        bounces={false}
+                      >
+                        <View style={styles.filterSectionHeader}>
+                          <MaterialCommunityIcons name="calendar-range" size={16} color="#6B7280" style={styles.filterSectionIcon} />
+                          <Text style={styles.filterSectionTitle}>
+                            {t('filters.dateRange') || 'טווח תאריכים'}
+                          </Text>
+                        </View>
+
+                        <View style={styles.datePickerContainer}>
+                          {/* Start Date - Hide when End Date picker is open */}
+                          {!showEndDatePicker && (
+                            <View style={styles.datePickerRow}>
+                              <Text style={styles.datePickerLabel}>
+                                :{t('filters.fromDate') || 'מתאריך'}
                               </Text>
-                            </TouchableOpacity>
-                            {tempStartDate && (
-                              <TouchableOpacity onPress={() => setTempStartDate(null)}>
-                                <MaterialCommunityIcons name="close-circle" size={20} color="#9CA3AF" />
+                              <TouchableOpacity
+                                style={styles.datePickerButton}
+                                onPress={() => {
+                                  setShowStartDatePicker(true);
+                                  setShowEndDatePicker(false);
+                                }}
+                              >
+                                <MaterialCommunityIcons name="calendar" size={18} color={THEME_COLORS.primary} />
+                                <Text style={styles.datePickerButtonText}>
+                                  {tempStartDate 
+                                    ? tempStartDate.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                                    : t('filters.selectDate') || 'בחר תאריך'}
+                                </Text>
                               </TouchableOpacity>
-                            )}
+                              {tempStartDate && (
+                                <TouchableOpacity onPress={() => setTempStartDate(null)}>
+                                  <MaterialCommunityIcons name="close-circle" size={18} color="#9CA3AF" />
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          )}
+
+                          {/* End Date - Hide when Start Date picker is open */}
+                          {!showStartDatePicker && (
+                            <View style={styles.datePickerRow}>
+                              <Text style={styles.datePickerLabel}>
+                                :{t('filters.toDate') || 'עד תאריך'}
+                              </Text>
+                              <TouchableOpacity
+                                style={styles.datePickerButton}
+                                onPress={() => {
+                                  setShowEndDatePicker(true);
+                                  setShowStartDatePicker(false);
+                                }}
+                              >
+                                <MaterialCommunityIcons name="calendar" size={18} color={THEME_COLORS.primary} />
+                                <Text style={styles.datePickerButtonText}>
+                                  {tempEndDate 
+                                    ? tempEndDate.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                                    : t('filters.selectDate') || 'בחר תאריך'}
+                                </Text>
+                              </TouchableOpacity>
+                              {tempEndDate && (
+                                <TouchableOpacity onPress={() => setTempEndDate(null)}>
+                                  <MaterialCommunityIcons name="close-circle" size={18} color="#9CA3AF" />
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          )}
+                        </View>
+
+                        {/* Date Pickers */}
+                        {showStartDatePicker && (
+                          <View style={[
+                            styles.datePickerWrapper,
+                            { minHeight: Platform.OS === 'ios' ? (datePickerStyle === 'calendar' ? 370 : 240) : 100 }
+                          ]}>
+                            <DateTimePicker
+                              value={tempStartDate || new Date()}
+                              mode="date"
+                              display={Platform.OS === 'ios' ? (datePickerStyle === 'calendar' ? 'inline' : 'spinner') : 'default'}
+                              onChange={(event, selectedDate) => {
+                                // On Android, close immediately after selection
+                                // On iOS, behavior depends on picker style
+                                if (Platform.OS === 'android') {
+                                  setShowStartDatePicker(false);
+                                }
+                                if (event.type === 'set' && selectedDate) {
+                                  setTempStartDate(selectedDate);
+                                }
+                                if (event.type === 'dismissed') {
+                                  setShowStartDatePicker(false);
+                                }
+                              }}
+                              minimumDate={new Date()}
+                              style={Platform.OS === 'ios' && datePickerStyle === 'spinner' ? { height: 216 } : undefined}
+                            />
                           </View>
                         )}
 
-                        {/* End Date - Hide when Start Date picker is open */}
-                        {!showStartDatePicker && (
-                          <View style={styles.datePickerRow}>
-                            <Text style={styles.datePickerLabel}>
-                              :{t('filters.toDate') || 'עד תאריך'}
-                            </Text>
-                            <TouchableOpacity
-                              style={styles.datePickerButton}
-                              onPress={() => {
-                                setShowEndDatePicker(true);
-                                setShowStartDatePicker(false);
+                        {showEndDatePicker && (
+                          <View style={[
+                            styles.datePickerWrapper,
+                            { minHeight: Platform.OS === 'ios' ? (datePickerStyle === 'calendar' ? 370 : 240) : 100 }
+                          ]}>
+                            <DateTimePicker
+                              value={tempEndDate || new Date()}
+                              mode="date"
+                              display={Platform.OS === 'ios' ? (datePickerStyle === 'calendar' ? 'inline' : 'spinner') : 'default'}
+                              onChange={(event, selectedDate) => {
+                                // On Android, close immediately after selection
+                                // On iOS, behavior depends on picker style
+                                if (Platform.OS === 'android') {
+                                  setShowEndDatePicker(false);
+                                }
+                                if (event.type === 'set' && selectedDate) {
+                                  setTempEndDate(selectedDate);
+                                }
+                                if (event.type === 'dismissed') {
+                                  setShowEndDatePicker(false);
+                                }
                               }}
-                            >
-                              <MaterialCommunityIcons name="calendar" size={20} color={THEME_COLORS.primary} />
-                              <Text style={styles.datePickerButtonText}>
-                                {tempEndDate 
-                                  ? tempEndDate.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
-                                  : t('filters.selectDate') || 'בחר תאריך'}
-                              </Text>
-                            </TouchableOpacity>
-                            {tempEndDate && (
-                              <TouchableOpacity onPress={() => setTempEndDate(null)}>
-                                <MaterialCommunityIcons name="close-circle" size={20} color="#9CA3AF" />
-                              </TouchableOpacity>
-                            )}
+                              minimumDate={tempStartDate || new Date()}
+                              style={Platform.OS === 'ios' && datePickerStyle === 'spinner' ? { height: 216 } : undefined}
+                            />
                           </View>
+                        )}
+                      </ScrollView>
+
+                      {/* ACTION BUTTONS */}
+                      <View style={styles.filterActionsDivider} />
+                      <View style={styles.filterActionsRow}>
+                        {/* Show "Done" button when date picker is open, otherwise show Apply/Clear/Cancel */}
+                        {(showStartDatePicker || showEndDatePicker) ? (
+                          <Button
+                            mode="contained"
+                            onPress={() => {
+                              // Save dates if not selected
+                              if (showStartDatePicker && !tempStartDate) {
+                                setTempStartDate(new Date());
+                              }
+                              if (showEndDatePicker && !tempEndDate) {
+                                setTempEndDate(new Date());
+                              }
+                              // Close pickers
+                              setShowStartDatePicker(false);
+                              setShowEndDatePicker(false);
+                            }}
+                            style={[styles.filterActionButton, { flex: 1 }]}
+                            contentStyle={styles.filterActionButtonContent}
+                            labelStyle={styles.filterActionButtonLabel}
+                            buttonColor={THEME_COLORS.primary}
+                          >
+                            {t('common.done') || 'סיום'}
+                          </Button>
+                        ) : (
+                          <>
+                            <Button
+                              mode="contained"
+                              onPress={handleApplyFilters}
+                              style={styles.filterActionButton}
+                              contentStyle={styles.filterActionButtonContent}
+                              labelStyle={styles.filterActionButtonLabel}
+                              buttonColor={THEME_COLORS.primary}
+                            >
+                              {t('filters.apply')}
+                            </Button>
+                            <Button
+                              mode="outlined"
+                              onPress={handleClearFilters}
+                              style={[styles.filterActionButton, styles.filterActionButtonOutlined]}
+                              contentStyle={styles.filterActionButtonContent}
+                              labelStyle={styles.filterActionButtonLabel}
+                              textColor="#6B7280"
+                            >
+                              {t('common.clear')}
+                            </Button>
+                            <Button
+                              mode="text"
+                              onPress={handleCloseFilterModal}
+                              style={styles.filterActionButtonCancel}
+                              contentStyle={styles.filterActionButtonContent}
+                              labelStyle={styles.filterActionButtonLabelCancel}
+                              textColor="#9CA3AF"
+                            >
+                              {t('common.cancel')}
+                            </Button>
+                          </>
                         )}
                       </View>
-
-                      {/* Date Pickers */}
-                      {showStartDatePicker && (
-                        <View>
-                          <DateTimePicker
-                            value={tempStartDate || new Date()}
-                            mode="date"
-                            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                            onChange={(event, selectedDate) => {
-                              // On Android, close immediately after selection
-                              // On iOS, keep open for spinner UX
-                              if (Platform.OS === 'android') {
-                                setShowStartDatePicker(false);
-                              }
-                              if (event.type === 'set' && selectedDate) {
-                                setTempStartDate(selectedDate);
-                              }
-                              if (event.type === 'dismissed') {
-                                setShowStartDatePicker(false);
-                              }
-                            }}
-                          />
-                          {Platform.OS === 'ios' && (
-                            <Button
-                              mode="text"
-                              onPress={() => {
-                                // Save current date if no date was selected
-                                if (!tempStartDate) {
-                                  setTempStartDate(new Date());
-                                }
-                                setShowStartDatePicker(false);
-                              }}
-                              style={styles.datePickerDoneButton}
-                            >
-                              {t('common.done') || 'סיום'}
-                            </Button>
-                          )}
-                        </View>
-                      )}
-
-                      {showEndDatePicker && (
-                        <View>
-                          <DateTimePicker
-                            value={tempEndDate || new Date()}
-                            mode="date"
-                            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                            onChange={(event, selectedDate) => {
-                              // On Android, close immediately after selection
-                              // On iOS, keep open for spinner UX
-                              if (Platform.OS === 'android') {
-                                setShowEndDatePicker(false);
-                              }
-                              if (event.type === 'set' && selectedDate) {
-                                setTempEndDate(selectedDate);
-                              }
-                              if (event.type === 'dismissed') {
-                                setShowEndDatePicker(false);
-                              }
-                            }}
-                            minimumDate={tempStartDate || undefined}
-                          />
-                          {Platform.OS === 'ios' && (
-                            <Button
-                              mode="text"
-                              onPress={() => {
-                                // Save current date if no date was selected
-                                if (!tempEndDate) {
-                                  setTempEndDate(new Date());
-                                }
-                                setShowEndDatePicker(false);
-                              }}
-                              style={styles.datePickerDoneButton}
-                            >
-                              {t('common.done') || 'סיום'}
-                            </Button>
-                          )}
-                        </View>
-                      )}
-                    </View>
-
-                    {/* ACTION BUTTONS */}
-                    <View style={styles.filterActionsDivider} />
-                    <View style={styles.filterActionsRow}>
-                      <Button
-                        mode="contained"
-                        onPress={handleApplyFilters}
-                        style={styles.filterActionButton}
-                        contentStyle={styles.filterActionButtonContent}
-                        labelStyle={styles.filterActionButtonLabel}
-                        buttonColor={THEME_COLORS.primary}
-                      >
-                        {t('filters.apply')}
-                      </Button>
-                      <Button
-                        mode="outlined"
-                        onPress={handleClearFilters}
-                        style={styles.filterActionButton}
-                        contentStyle={styles.filterActionButtonContent}
-                        labelStyle={styles.filterActionButtonLabel}
-                        textColor="#6B7280"
-                        outlineColor="rgba(107, 114, 128, 0.2)"
-                      >
-                        {t('common.clear')}
-                      </Button>
-                      <Button
-                        mode="text"
-                        onPress={() => setFilterMenuVisible(false)}
-                        style={styles.filterActionButtonCancel}
-                        contentStyle={styles.filterActionButtonContent}
-                        labelStyle={styles.filterActionButtonLabelCancel}
-                        textColor="#9CA3AF"
-                      >
-                        {t('common.cancel')}
-                      </Button>
-                    </View>
-                  </Surface>
-                </TouchableWithoutFeedback>
-              </View>
-            </TouchableWithoutFeedback>
+                    </Surface>
+                  </TouchableWithoutFeedback>
+                </View>
+              </TouchableWithoutFeedback>
+            </KeyboardAvoidingView>
           </Modal>
         </View>
 
@@ -774,7 +833,23 @@ export default function AllScreen() {
   );
 }
 
-const createStyles = (isRTL: boolean) => StyleSheet.create({
+const createStyles = (isRTL: boolean, insets: { top: number; bottom: number; left: number; right: number }, screenHeight: number, screenWidth: number, datePickerStyle: 'calendar' | 'spinner') => {
+  // חישוב רוחב דינמי לפי גודל המסך
+  const getCardWidth = () => {
+    if (screenWidth < 375) return '97%'; // iPhone SE (קטן מאוד)
+    if (screenWidth < 414) return '98%'; // iPhone 8, X, 11 Pro
+    return '98%'; // iPhone Plus, Max, Pro Max
+  };
+  
+  const getMaxWidth = () => {
+    if (screenWidth < 375) return 340; // iPhone SE
+    if (screenWidth < 390) return 360; // iPhone 12 mini, 13 mini
+    if (screenWidth < 414) return 380; // iPhone 12, 13, 14
+    if (screenWidth < 430) return 400; // iPhone 12 Pro Max, 13 Pro Max
+    return 420; // iPhone 14 Plus, 15 Plus, 15 Pro Max
+  };
+
+  return StyleSheet.create({
   container: {
     flex: 1,
   },
@@ -900,24 +975,47 @@ const createStyles = (isRTL: boolean) => StyleSheet.create({
     flex: 1,
   },
   filterButton: {
-    width: 44,
+    width: 48,
     height: 52,
     borderRadius: 14,
     backgroundColor: '#F3F4F6',
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#E5E7EB',
     justifyContent: 'center',
     alignItems: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 1,
+      },
+    }),
   },
   filterButtonActive: {
     backgroundColor: THEME_COLORS.primary,
     borderColor: THEME_COLORS.primary,
+    ...Platform.select({
+      ios: {
+        shadowColor: THEME_COLORS.primary,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
   },
   activeFilterRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 12,
     gap: 8,
+    flexWrap: 'wrap',
   },
   filterRow: {
     flexDirection: 'row',
@@ -952,21 +1050,20 @@ const createStyles = (isRTL: boolean) => StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: 40,
-    paddingBottom: 40,
-    paddingHorizontal: 20,
+    paddingTop: Math.max(insets.top + 8, 24),
+    paddingBottom: Math.max(insets.bottom + 8, 24),
+    paddingHorizontal: 16,
   },
   filterCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 20,
-    width: '90%',
-    maxWidth: 420,
-    maxHeight: '75%',
-    flexDirection: 'column',
-    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 12,
+    width: '94%',
+    maxWidth: 440,
+    maxHeight: screenHeight * 0.92,
+    minHeight: 450,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -982,20 +1079,20 @@ const createStyles = (isRTL: boolean) => StyleSheet.create({
   filterTitleSection: {
     flexDirection: isRTL ? 'row-reverse' : 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 10,
   },
   filterTitleIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     backgroundColor: THEME_COLORS.primary + '15',
     justifyContent: 'center',
     alignItems: 'center',
-    marginEnd: isRTL ? 0 : 12,
-    marginStart: isRTL ? 12 : 0,
+    marginEnd: isRTL ? 0 : 8,
+    marginStart: isRTL ? 8 : 0,
   },
   filterTitle: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: '700',
     color: '#111827',
     letterSpacing: 0.3,
@@ -1004,7 +1101,16 @@ const createStyles = (isRTL: boolean) => StyleSheet.create({
   filterTitleDivider: {
     height: 1,
     backgroundColor: '#F3F4F6',
-    marginBottom: 20,
+    marginBottom: 10,
+  },
+  filterContentScrollView: {
+    flex: 1,
+    minHeight: 250,
+  },
+  filterContentScrollViewContent: {
+    paddingTop: 4,
+    paddingBottom: 20,
+    paddingHorizontal: 2,
   },
   filterContentWrapper: {
     marginTop: 12,
@@ -1015,14 +1121,14 @@ const createStyles = (isRTL: boolean) => StyleSheet.create({
   filterSectionHeader: {
     flexDirection: isRTL ? 'row-reverse' : 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 10,
   },
   filterSectionIcon: {
-    marginEnd: isRTL ? 0 : 8,
-    marginStart: isRTL ? 8 : 0,
+    marginEnd: isRTL ? 0 : 6,
+    marginStart: isRTL ? 6 : 0,
   },
   filterSectionTitle: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '600',
     color: '#374151',
     letterSpacing: 0.2,
@@ -1135,33 +1241,37 @@ const createStyles = (isRTL: boolean) => StyleSheet.create({
     height: 1,
     backgroundColor: '#F3F4F6',
     marginTop: 8,
-    marginBottom: 20,
+    marginBottom: 10,
   },
   filterActionsRow: {
     flexDirection: isRTL ? 'row-reverse' : 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 10,
+    gap: 6,
     flexShrink: 0,
   },
   filterActionButton: {
     flex: 1,
     borderRadius: 12,
-    height: 50,
-    minHeight: 50,
-    maxHeight: 50,
+    height: 42,
+    minHeight: 42,
+    maxHeight: 42,
+  },
+  filterActionButtonOutlined: {
+    borderColor: 'rgba(107, 114, 128, 0.2)',
+    borderWidth: 1,
   },
   filterActionButtonCancel: {
     flex: 1,
     borderRadius: 12,
-    height: 50,
-    minHeight: 50,
-    maxHeight: 50,
+    height: 42,
+    minHeight: 42,
+    maxHeight: 42,
   },
   filterActionButtonContent: {
-    height: 50,
-    minHeight: 50,
-    maxHeight: 50,
+    height: 42,
+    minHeight: 42,
+    maxHeight: 42,
     justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 0,
@@ -1269,41 +1379,51 @@ const createStyles = (isRTL: boolean) => StyleSheet.create({
     flex: 1,
   },
   datePickerContainer: {
-    gap: 16,
-    paddingVertical: 8,
+    gap: 10,
+    paddingVertical: 6,
   },
   datePickerRow: {
     flexDirection: isRTL ? 'row-reverse' : 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
   },
   datePickerLabel: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
     color: '#374151',
-    minWidth: 70,
+    minWidth: 60,
+    textAlign: isRTL ? 'right' : 'left',
   },
   datePickerButton: {
     flex: 1,
     flexDirection: isRTL ? 'row-reverse' : 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
     backgroundColor: '#F9FAFB',
     borderWidth: 1.5,
     borderColor: '#E5E7EB',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    minHeight: 38,
   },
   datePickerButtonText: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '500',
     color: '#374151',
     flex: 1,
+    textAlign: isRTL ? 'right' : 'left',
   },
   datePickerDoneButton: {
     alignSelf: 'center',
-    marginTop: 32,
+    marginTop: 8,
+    marginBottom: 8,
   },
-});
+  datePickerWrapper: {
+    marginTop: 10,
+    paddingBottom: 10,
+    // minHeight applied dynamically in JSX based on datePickerStyle
+  },
+  });
+};
 

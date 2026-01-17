@@ -347,29 +347,38 @@ export default function FastScanScreen() {
     // Show focus indicator at tap location
     setFocusPoint({ x: locationX, y: locationY });
 
-    // Light haptic feedback
-    Haptics.selectionAsync();
-
-    // Try to focus the camera at the tapped point
+    // Medium haptic feedback for focus action
     try {
-      if (cameraRef.current) {
-        // Get the camera view dimensions
-        const layout = event.nativeEvent.target;
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch { }
+
+    // Trigger camera re-focus with multiple attempts for close-up items
+    try {
+      if (cameraRef.current && typeof cameraRef.current.focus === 'function') {
+        console.log('[Fast Scan] Starting multi-attempt focus for close-up support');
         
-        // Normalize coordinates (0-1 range)
-        // expo-camera expects normalized coordinates
-        const normalizedX = locationX / Dimensions.get('window').width;
-        const normalizedY = locationY / Dimensions.get('window').height;
-        
-        console.log('[Fast Scan] Focusing camera at:', { x: normalizedX, y: normalizedY });
-        
-        // Call focus method if available
-        if (typeof cameraRef.current.focus === 'function') {
-          await cameraRef.current.focus();
+        // Multiple focus attempts help with very close barcodes
+        // The camera needs time to adjust between attempts
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            await cameraRef.current.focus();
+            console.log(`[Fast Scan] Focus attempt ${attempt}/3 completed`);
+            
+            // Short delay between attempts to let camera stabilize
+            if (attempt < 3) {
+              await new Promise(resolve => setTimeout(resolve, 150));
+            }
+          } catch (error) {
+            console.log(`[Fast Scan] Focus attempt ${attempt}/3 failed:`, error);
+          }
         }
+        
+        console.log('[Fast Scan] Multi-attempt focus sequence completed');
+      } else {
+        console.log('[Fast Scan] Focus method not available, camera will use default autofocus');
       }
     } catch (error) {
-      console.log('[Fast Scan] Camera focus not supported or error:', error);
+      console.log('[Fast Scan] Camera focus error (non-critical):', error);
     }
 
     // Animate focus indicator
@@ -993,9 +1002,17 @@ export default function FastScanScreen() {
 
             {/* Distance hint - shows when idle */}
             {scanState === 'idle' && (
-              <Text style={styles.distanceHint}>
-                {t('fastScan.distanceHint') || '15-25 ס״מ מהברקוד'}
-              </Text>
+              <>
+                <Text style={styles.distanceHint}>
+                  {t('fastScan.distanceHint') || '15-25 ס״מ מהברקוד'}
+                </Text>
+                <Text style={styles.tapToFocusHint}>
+                  {t('fastScan.tapToFocus') || 'לחץ על המסך למיקוד מחדש'}
+                </Text>
+                <Text style={styles.closeUpHint}>
+                  {t('fastScan.closeUpHint') || 'לברקודים קרובים מאוד - לחץ מספר פעמים'}
+                </Text>
+              </>
             )}
           </View>
 
@@ -1334,6 +1351,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '500',
     letterSpacing: 0.3,
+  },
+  tapToFocusHint: {
+    marginTop: 6,
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.5)',
+    textAlign: 'center',
+    fontWeight: '400',
+    letterSpacing: 0.2,
+  },
+  closeUpHint: {
+    marginTop: 4,
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.4)',
+    textAlign: 'center',
+    fontWeight: '400',
+    letterSpacing: 0.2,
+    fontStyle: 'italic',
   },
 
   // Tap-to-focus indicator
